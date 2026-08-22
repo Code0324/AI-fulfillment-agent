@@ -1,0 +1,38 @@
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Frontend - Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Backend - Python
+backend/__pycache__/
+backend/**/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
