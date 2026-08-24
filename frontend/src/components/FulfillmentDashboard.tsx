@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import OrdersSection from "@/components/OrdersSection";
 import InventorySection from "@/components/InventorySection";
+import AutomationSandbox from "@/components/AutomationSandbox";
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -362,6 +363,12 @@ export default function FulfillmentDashboard() {
 
         {/* ---- Inventory Section ---- */}
         <InventorySection />
+
+        {/* ---- Divider ---- */}
+        <hr className="border-gray-200" />
+
+        {/* ---- Automation Sandbox Section ---- */}
+        <AutomationSandbox />
       </main>
     </div>
   );

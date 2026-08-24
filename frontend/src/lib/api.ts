@@ -431,3 +431,116 @@ export async function updateInventoryItem(
     return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Automation
+// ---------------------------------------------------------------------------
+
+export type AutomationSessionStatus = "idle" | "running" | "waiting_approval" | "completed" | "failed" | "stopped";
+
+export interface AutomationSession {
+  id: string;
+  environment: string;
+  status: AutomationSessionStatus;
+  current_action: string | null;
+  last_result: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationSessionListResponse {
+  items: AutomationSession[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
+export interface NormalizedAddress {
+  first_name: string;
+  last_name: string;
+  address_line_1: string;
+  address_line_2?: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country?: string;
+  phone?: string;
+}
+
+function automationApiBase(): string {
+  return `${API_BASE_URL}/api/v1/automation`;
+}
+
+export async function createAutomationSession(): Promise<{ ok: true; data: AutomationSession } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${automationApiBase()}/sessions?environment=sandbox`, {
+      method: "POST",
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AutomationSession };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fetchAutomationSessions(
+  page = 1,
+  pageSize = 50,
+): Promise<{ ok: true; data: AutomationSessionListResponse } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${automationApiBase()}/sessions?page=${page}&page_size=${pageSize}`,
+      { cache: "no-store" },
+    );
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AutomationSessionListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function stopAutomationSession(
+  sessionId: string,
+): Promise<{ ok: true; data: AutomationSession } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${automationApiBase()}/sessions/${sessionId}/stop`, {
+      method: "POST",
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AutomationSession };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fillAutomationForm(
+  sessionId: string,
+  address: NormalizedAddress,
+  shippingMethod: string = "standard",
+): Promise<{ ok: true; data: { success: boolean; filled_fields: string[]; error_message: string | null } } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${automationApiBase()}/sessions/${sessionId}/fill`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, address, shipping_method: shippingMethod }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as { success: boolean; filled_fields: string[]; error_message: string | null } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
