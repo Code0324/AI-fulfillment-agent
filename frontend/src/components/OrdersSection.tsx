@@ -9,6 +9,7 @@ import {
   type Order,
   type OrderStatus,
 } from "@/lib/api";
+import OrderDetail from "@/components/OrderDetail";
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -89,6 +90,12 @@ export default function OrdersSection() {
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
+  // filter
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | undefined>(undefined);
+
+  // detail view
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
   // ------------------------------------------------------------------
   // Load data
   // ------------------------------------------------------------------
@@ -96,26 +103,47 @@ export default function OrdersSection() {
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await fetchOrders(1, 200);
+    const result = await fetchOrders(1, 200, statusFilter);
     if (result.ok) {
       setOrders(result.data.items);
     } else {
       setError(result.error);
     }
     setLoading(false);
-  }, []);
+  }, [statusFilter]);
 
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
 
   // ------------------------------------------------------------------
-  // Summary counts
+  // Summary counts (always from unfiltered full set)
   // ------------------------------------------------------------------
+
+  const [allCounts, setAllCounts] = useState<Record<OrderStatus, number>>({
+    pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0,
+  });
+
+  const loadAllCounts = useCallback(async () => {
+    const result = await fetchOrders(1, 200);
+    if (result.ok) {
+      const counts: Record<OrderStatus, number> = {
+        pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0,
+      };
+      for (const o of result.data.items) {
+        counts[o.status]++;
+      }
+      setAllCounts(counts);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAllCounts();
+  }, [loadAllCounts]);
 
   const summary = ALL_ORDER_STATUSES.map((s) => ({
     status: s,
-    count: orders.filter((o) => o.status === s).length,
+    count: allCounts[s],
   }));
 
   // ------------------------------------------------------------------
@@ -146,6 +174,27 @@ export default function OrdersSection() {
     } else {
       setError(result.error);
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Detail view
+  // ------------------------------------------------------------------
+
+  function handleOrderStatusChanged(updated: Order) {
+    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    loadAllCounts();
+  }
+
+  if (selectedOrderId) {
+    return (
+      <section aria-label="Order Detail">
+        <OrderDetail
+          orderId={selectedOrderId}
+          onClose={() => setSelectedOrderId(null)}
+          onStatusChanged={handleOrderStatusChanged}
+        />
+      </section>
+    );
   }
 
   // ------------------------------------------------------------------
@@ -270,12 +319,30 @@ export default function OrdersSection() {
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
             Orders
           </h2>
-          <button
-            onClick={loadOrders}
-            className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <select
+              value={statusFilter ?? ""}
+              onChange={(e) =>
+                setStatusFilter(
+                  e.target.value ? (e.target.value as OrderStatus) : undefined,
+                )
+              }
+              className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">All Statuses</option>
+              {ALL_ORDER_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {ORDER_STATUS_META[s].label}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={loadOrders}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         {loading && (
@@ -339,22 +406,12 @@ export default function OrdersSection() {
                           {formatTime(order.created_at)}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <select
-                            value={order.status}
-                            onChange={(e) =>
-                              handleStatusChange(
-                                order.id,
-                                e.target.value as OrderStatus,
-                              )
-                            }
-                            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          <button
+                            onClick={() => setSelectedOrderId(order.id)}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
                           >
-                            {ALL_ORDER_STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {ORDER_STATUS_META[s].label}
-                              </option>
-                            ))}
-                          </select>
+                            View
+                          </button>
                         </td>
                       </tr>
                     );

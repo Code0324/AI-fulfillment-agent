@@ -1,7 +1,8 @@
 """Tests for the generic Order API endpoints.
 
-Covers POST, GET list (paginated), GET by ID, PATCH — plus 404,
-validation errors, pagination edge cases, and regression checks.
+Covers POST, GET list (paginated + filtered), GET by ID, PATCH —
+plus 404, validation errors, transition validation,
+pagination edge cases, and regression checks.
 """
 
 import uuid
@@ -258,6 +259,24 @@ class TestUpdateOrder:
         assert resp.status_code == 200
         assert resp.json()["status"] == "cancelled"
 
+    def test_cancel_from_processing(self, client):
+        created = _create_order(client, status="processing")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "cancelled"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+
+    def test_cancel_from_shipped(self, client):
+        created = _create_order(client, status="shipped")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "cancelled"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+
     def test_update_updates_timestamp(self, client):
         created = _create_order(client)
         resp = client.patch(
@@ -284,6 +303,139 @@ class TestUpdateOrder:
             json={"status": bad_status},
         )
         assert resp.status_code == 422
+
+
+# ===========================================================================
+# Transition validation
+# ===========================================================================
+
+class TestTransitionValidation:
+    """Ensure invalid status transitions are rejected."""
+
+    def test_delivered_to_pending_rejected(self, client):
+        created = _create_order(client, status="delivered")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "pending"},
+        )
+        assert resp.status_code == 422
+        assert "error" in resp.json()
+
+    def test_delivered_to_processing_rejected(self, client):
+        created = _create_order(client, status="delivered")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "processing"},
+        )
+        assert resp.status_code == 422
+
+    def test_cancelled_to_shipped_rejected(self, client):
+        created = _create_order(client, status="cancelled")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "shipped"},
+        )
+        assert resp.status_code == 422
+
+    def test_cancelled_to_pending_rejected(self, client):
+        created = _create_order(client, status="cancelled")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "pending"},
+        )
+        assert resp.status_code == 422
+
+    def test_shipped_to_pending_rejected(self, client):
+        created = _create_order(client, status="shipped")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "pending"},
+        )
+        assert resp.status_code == 422
+
+    def test_shipped_to_processing_rejected(self, client):
+        created = _create_order(client, status="shipped")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "processing"},
+        )
+        assert resp.status_code == 422
+
+    def test_processing_to_pending_rejected(self, client):
+        created = _create_order(client, status="processing")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "pending"},
+        )
+        assert resp.status_code == 422
+
+    # --- valid forward transitions ---
+
+    def test_pending_to_processing_valid(self, client):
+        created = _create_order(client)
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "processing"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "processing"
+
+    def test_processing_to_shipped_valid(self, client):
+        created = _create_order(client, status="processing")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "shipped"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "shipped"
+
+    def test_shipped_to_delivered_valid(self, client):
+        created = _create_order(client, status="shipped")
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "delivered"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "delivered"
+
+
+# ===========================================================================
+# Status filtering
+# ===========================================================================
+
+class TestFilterByStatus:
+    """GET /api/v1/orders?status=... filtering."""
+
+    def test_filter_pending(self, client):
+        _create_order(client, customer_name="A")
+        _create_order(client, customer_name="B", status="processing")
+        resp = client.get("/api/v1/orders?status=pending").json()
+        assert resp["total_items"] == 1
+        assert resp["items"][0]["customer_name"] == "A"
+
+    def test_filter_processing(self, client):
+        _create_order(client, status="processing")
+        _create_order(client, status="shipped")
+        resp = client.get("/api/v1/orders?status=processing").json()
+        assert resp["total_items"] == 1
+        assert resp["items"][0]["status"] == "processing"
+
+    def test_filter_no_match(self, client):
+        _create_order(client)
+        resp = client.get("/api/v1/orders?status=delivered").json()
+        assert resp["items"] == []
+        assert resp["total_items"] == 0
+
+    def test_filter_invalid_status_returns_422(self, client):
+        resp = client.get("/api/v1/orders?status=bogus")
+        assert resp.status_code == 422
+
+    def test_no_filter_returns_all(self, client):
+        _create_order(client, status="pending")
+        _create_order(client, status="processing")
+        _create_order(client, status="shipped")
+        resp = client.get("/api/v1/orders").json()
+        assert resp["total_items"] == 3
 
 
 # ===========================================================================

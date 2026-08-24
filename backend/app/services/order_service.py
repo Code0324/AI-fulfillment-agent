@@ -9,7 +9,7 @@ import math
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, ValidationError
 from app.schemas.order import (
     Order,
     OrderCreate,
@@ -17,6 +17,23 @@ from app.schemas.order import (
     OrderStatus,
     OrderUpdate,
 )
+
+# ---------------------------------------------------------------------------
+# Allowed status transitions
+# ---------------------------------------------------------------------------
+# pending  → processing, cancelled
+# processing → shipped, cancelled
+# shipped → delivered, cancelled
+# delivered → (terminal — no transitions)
+# cancelled → (terminal — no transitions)
+
+VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
+    OrderStatus.PENDING: [OrderStatus.PROCESSING, OrderStatus.CANCELLED],
+    OrderStatus.PROCESSING: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
+    OrderStatus.SHIPPED: [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
+    OrderStatus.DELIVERED: [],
+    OrderStatus.CANCELLED: [],
+}
 
 
 class OrderService:
@@ -49,10 +66,12 @@ class OrderService:
         return order
 
     def list_orders(
-        self, *, page: int = 1, page_size: int = 10
+        self, *, page: int = 1, page_size: int = 10, status: OrderStatus | None = None
     ) -> OrderListResponse:
-        """Return a paginated slice of orders with metadata."""
+        """Return a paginated slice of orders with optional status filter."""
         all_orders = list(self._orders.values())
+        if status is not None:
+            all_orders = [o for o in all_orders if o.status == status]
         total_items = len(all_orders)
         total_pages = math.ceil(total_items / page_size) if total_items else 0
 
@@ -69,8 +88,15 @@ class OrderService:
         )
 
     def update_status(self, order_id: UUID, status: OrderStatus) -> Order:
-        """Update only the status of an existing order."""
+        """Update the status of an existing order with transition validation."""
         order = self.get(order_id)
+        allowed = VALID_TRANSITIONS.get(order.status, [])
+        if status not in allowed:
+            allowed_labels = [s.value for s in allowed]
+            raise ValidationError(
+                f"Cannot transition from '{order.status.value}' to '{status.value}'. "
+                f"Allowed transitions: {allowed_labels or ['(none — terminal status)']}"
+            )
         updated = order.model_copy(
             update={
                 "status": status,

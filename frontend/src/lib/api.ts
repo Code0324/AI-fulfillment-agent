@@ -218,10 +218,16 @@ function orderApiBase(): string {
 export async function fetchOrders(
   page = 1,
   pageSize = 50,
+  statusFilter?: OrderStatus,
 ): Promise<{ ok: true; data: OrderListResponse } | { ok: false; error: string }> {
   try {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (statusFilter) params.set("status", statusFilter);
     const res = await fetch(
-      `${orderApiBase()}?page=${page}&page_size=${pageSize}`,
+      `${orderApiBase()}?${params.toString()}`,
       { cache: "no-store" },
     );
     const body: unknown = await res.json();
@@ -229,6 +235,23 @@ export async function fetchOrders(
       return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
     }
     return { ok: true, data: body as OrderListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fetchOrder(
+  orderId: string,
+): Promise<{ ok: true; data: Order } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${orderApiBase()}/${orderId}`, {
+      cache: "no-store",
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as Order };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }

@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query, status as http_status
 
 from app.core.errors import ValidationError
-from app.schemas.order import Order, OrderCreate, OrderListResponse, OrderUpdate
+from app.schemas.order import Order, OrderCreate, OrderListResponse, OrderStatus, OrderUpdate
 from app.services.order_service import order_service
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -21,9 +21,10 @@ def create_order(payload: OrderCreate) -> Order:
 def list_orders(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page (max 100)"),
+    status: OrderStatus | None = Query(None, description="Filter by order status"),
 ) -> OrderListResponse:
-    """List orders with pagination."""
-    return order_service.list_orders(page=page, page_size=page_size)
+    """List orders with optional status filter and pagination."""
+    return order_service.list_orders(page=page, page_size=page_size, status=status)
 
 
 @router.get("/{order_id}", response_model=Order)
