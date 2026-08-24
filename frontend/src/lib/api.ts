@@ -180,3 +180,102 @@ export async function updateTaskStatus(
     return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Orders
+// ---------------------------------------------------------------------------
+
+export type OrderStatus =
+  | "pending"
+  | "processing"
+  | "shipped"
+  | "delivered"
+  | "cancelled";
+
+export interface Order {
+  id: string;
+  customer_name: string;
+  shipping_address: string;
+  product_name: string;
+  quantity: number;
+  status: OrderStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrderListResponse {
+  items: Order[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
+function orderApiBase(): string {
+  return `${API_BASE_URL}/api/v1/orders`;
+}
+
+export async function fetchOrders(
+  page = 1,
+  pageSize = 50,
+): Promise<{ ok: true; data: OrderListResponse } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${orderApiBase()}?page=${page}&page_size=${pageSize}`,
+      { cache: "no-store" },
+    );
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as OrderListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export interface CreateOrderPayload {
+  customer_name: string;
+  shipping_address: string;
+  product_name: string;
+  quantity: number;
+}
+
+export async function createOrder(
+  payload: CreateOrderPayload,
+): Promise<{ ok: true; data: Order } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(orderApiBase(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, status: "pending" }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as Order };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function updateOrderStatus(
+  orderId: string,
+  status: OrderStatus,
+): Promise<{ ok: true; data: Order } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${orderApiBase()}/${orderId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as Order };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
