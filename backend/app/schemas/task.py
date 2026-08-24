@@ -29,6 +29,7 @@ class Task(BaseModel):
     """
 
     id: UUID = Field(..., description="Unique task identifier")
+    title: str = Field(default="", description="Optional task title")
     status: TaskStatus = Field(..., description="Current task status")
     created_at: datetime = Field(..., description="When the task was created")
     updated_at: datetime = Field(..., description="When the task was last updated")
@@ -37,6 +38,7 @@ class Task(BaseModel):
 class TaskCreate(BaseModel):
     """Payload for creating a new task (future use)."""
 
+    title: str = Field(default="", description="Task title")
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="Initial status")
 
 

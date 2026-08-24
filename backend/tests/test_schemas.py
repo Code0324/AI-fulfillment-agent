@@ -63,6 +63,12 @@ class TestTaskSchemas:
     def test_task_create_defaults_to_pending(self):
         model = TaskCreate()
         assert model.status is TaskStatus.PENDING
+        assert model.title == ""
+
+    def test_task_create_with_title(self):
+        model = TaskCreate(title="My Task")
+        assert model.title == "My Task"
+        assert model.status is TaskStatus.PENDING
 
     @pytest.mark.parametrize("status", ["pending", "running", "completed", "failed"])
     def test_task_create_accepts_all_statuses(self, status):
@@ -91,15 +97,18 @@ class TestTaskSchemas:
         task_id = uuid4()
         task = Task(
             id=task_id,
+            title="Test Task",
             status=TaskStatus.RUNNING,
             created_at=now,
             updated_at=now,
         )
         dumped = task.model_dump(mode="json")
         assert dumped["id"] == str(task_id)
+        assert dumped["title"] == "Test Task"
         assert dumped["status"] == "running"
         restored = Task.model_validate(dumped)
         assert restored.id == task_id
+        assert restored.title == "Test Task"
         assert restored.status is TaskStatus.RUNNING
 
     def test_task_missing_required_fields_rejected(self):

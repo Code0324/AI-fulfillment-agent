@@ -23,9 +23,9 @@ def _reset_task_service():
     task_service.clear()
 
 
-def _create_task(client, status="pending"):
+def _create_task(client, status="pending", title=""):
     """Helper: create a task and return the response JSON."""
-    return client.post("/api/v1/tasks", json={"status": status}).json()
+    return client.post("/api/v1/tasks", json={"status": status, "title": title}).json()
 
 
 # ===========================================================================
@@ -41,6 +41,7 @@ class TestCreateTask:
         assert resp.status_code == 201
         body = resp.json()
         assert body["status"] == "pending"
+        assert body["title"] == ""
         assert "id" in body
         assert "created_at" in body
         assert "updated_at" in body
@@ -75,6 +76,11 @@ class TestCreateTask:
         r1 = client.post("/api/v1/tasks").json()
         r2 = client.post("/api/v1/tasks").json()
         assert r1["id"] != r2["id"]
+
+    def test_create_with_title(self, client):
+        resp = client.post("/api/v1/tasks", json={"title": "My Task", "status": "pending"})
+        assert resp.status_code == 201
+        assert resp.json()["title"] == "My Task"
 
     def test_create_validates_response_model(self, client):
         """Response body fully validates against the Task schema."""
@@ -243,7 +249,7 @@ class TestGetTask:
     def test_get_returns_correct_fields(self, client):
         created = _create_task(client, "failed")
         resp = client.get(f"/api/v1/tasks/{created['id']}").json()
-        assert set(resp.keys()) == {"id", "status", "created_at", "updated_at"}
+        assert set(resp.keys()) == {"id", "title", "status", "created_at", "updated_at"}
         assert resp["status"] == "failed"
 
 

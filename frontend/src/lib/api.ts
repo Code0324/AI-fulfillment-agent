@@ -1,6 +1,10 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+// ---------------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------------
+
 export const HEALTH_ENDPOINT = `${API_BASE_URL}/api/v1/health`;
 
 export interface HealthStatus {
@@ -73,5 +77,106 @@ export async function checkBackendHealth(): Promise<HealthCheckResult> {
       error:
         error instanceof Error ? error.message : "Unknown network error",
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+export type TaskStatus = "pending" | "running" | "completed" | "failed";
+
+export interface Task {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskListResponse {
+  items: Task[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
+export interface ApiError {
+  error: string;
+}
+
+// ---- helpers ----
+
+function taskApiBase(): string {
+  return `${API_BASE_URL}/api/v1/tasks`;
+}
+
+function isApiError(body: unknown): body is ApiError {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "error" in body &&
+    typeof (body as { error: unknown }).error === "string"
+  );
+}
+
+// ---- API calls ----
+
+export async function fetchTasks(
+  page = 1,
+  pageSize = 50,
+): Promise<{ ok: true; data: TaskListResponse } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${taskApiBase()}?page=${page}&page_size=${pageSize}`,
+      { cache: "no-store" },
+    );
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as TaskListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function createTask(
+  title: string,
+): Promise<{ ok: true; data: Task } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(taskApiBase(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, status: "pending" }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as Task };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function updateTaskStatus(
+  taskId: string,
+  status: TaskStatus,
+): Promise<{ ok: true; data: Task } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${taskApiBase()}/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as Task };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }
 }

@@ -25,6 +25,7 @@ class TaskService:
         now = datetime.now(timezone.utc)
         task = Task(
             id=uuid4(),
+            title=payload.title,
             status=payload.status,
             created_at=now,
             updated_at=now,
