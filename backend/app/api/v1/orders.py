@@ -22,9 +22,10 @@ def list_orders(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page (max 100)"),
     status: OrderStatus | None = Query(None, description="Filter by order status"),
+    search: str | None = Query(None, description="Search by customer, product, or order ID"),
 ) -> OrderListResponse:
-    """List orders with optional status filter and pagination."""
-    return order_service.list_orders(page=page, page_size=page_size, status=status)
+    """List orders with optional search, status filter, and pagination."""
+    return order_service.list_orders(page=page, page_size=page_size, status=status, search=search)
 
 
 @router.get("/{order_id}", response_model=Order)
@@ -39,3 +40,9 @@ def update_order(order_id: UUID, payload: OrderUpdate) -> Order:
     if payload.status is None:
         raise ValidationError("Field 'status' is required")
     return order_service.update_status(order_id, payload.status)
+
+
+@router.post("/{order_id}/reserve", response_model=Order)
+def reserve_order_inventory(order_id: UUID) -> Order:
+    """Reserve inventory for an existing order."""
+    return order_service.reserve_inventory(order_id)

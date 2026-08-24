@@ -17,6 +17,7 @@ from app.schemas.order import (
     OrderStatus,
     OrderUpdate,
 )
+from app.services.inventory_service import inventory_service
 
 # ---------------------------------------------------------------------------
 # Allowed status transitions
@@ -43,15 +44,24 @@ class OrderService:
         self._orders: dict[UUID, Order] = {}
 
     def create(self, payload: OrderCreate) -> Order:
-        """Create a new order."""
+        """Create a new order, optionally reserving inventory."""
         now = datetime.now(timezone.utc)
+        inventory_reserved = False
+
+        # Reserve inventory if requested
+        if payload.reserve_inventory and payload.sku:
+            inventory_service.reserve(payload.sku, payload.quantity)
+            inventory_reserved = True
+
         order = Order(
             id=uuid4(),
             customer_name=payload.customer_name,
             shipping_address=payload.shipping_address,
             product_name=payload.product_name,
+            sku=payload.sku,
             quantity=payload.quantity,
             status=payload.status,
+            inventory_reserved=inventory_reserved,
             created_at=now,
             updated_at=now,
         )
@@ -66,12 +76,26 @@ class OrderService:
         return order
 
     def list_orders(
-        self, *, page: int = 1, page_size: int = 10, status: OrderStatus | None = None
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 10,
+        status: OrderStatus | None = None,
+        search: str | None = None,
     ) -> OrderListResponse:
-        """Return a paginated slice of orders with optional status filter."""
+        """Return a paginated slice of orders with optional filters."""
         all_orders = list(self._orders.values())
         if status is not None:
             all_orders = [o for o in all_orders if o.status == status]
+        if search:
+            q = search.lower()
+            all_orders = [
+                o
+                for o in all_orders
+                if q in o.customer_name.lower()
+                or q in o.product_name.lower()
+                or q in str(o.id).lower()
+            ]
         total_items = len(all_orders)
         total_pages = math.ceil(total_items / page_size) if total_items else 0
 
@@ -97,9 +121,31 @@ class OrderService:
                 f"Cannot transition from '{order.status.value}' to '{status.value}'. "
                 f"Allowed transitions: {allowed_labels or ['(none — terminal status)']}"
             )
+
+        # Release inventory on cancellation if it was reserved
+        if status == OrderStatus.CANCELLED and order.inventory_reserved and order.sku:
+            inventory_service.release(order.sku, order.quantity)
+
         updated = order.model_copy(
             update={
                 "status": status,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+        self._orders[order_id] = updated
+        return updated
+
+    def reserve_inventory(self, order_id: UUID) -> Order:
+        """Reserve inventory for an existing order."""
+        order = self.get(order_id)
+        if order.inventory_reserved:
+            raise ValidationError("Inventory already reserved for this order")
+        if not order.sku:
+            raise ValidationError("Order has no SKU — cannot reserve inventory")
+        inventory_service.reserve(order.sku, order.quantity)
+        updated = order.model_copy(
+            update={
+                "inventory_reserved": True,
                 "updated_at": datetime.now(timezone.utc),
             }
         )

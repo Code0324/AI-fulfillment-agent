@@ -28,8 +28,10 @@ class Order(BaseModel):
     customer_name: str = Field(..., min_length=1, description="Customer name")
     shipping_address: str = Field(..., min_length=1, description="Shipping address")
     product_name: str = Field(..., min_length=1, description="Product or item name")
+    sku: str = Field(default="", description="Product SKU for inventory lookup")
     quantity: int = Field(..., ge=1, description="Quantity ordered")
     status: OrderStatus = Field(..., description="Current order status")
+    inventory_reserved: bool = Field(default=False, description="Whether inventory has been reserved")
     created_at: datetime = Field(..., description="When the order was created")
     updated_at: datetime = Field(..., description="When the order was last updated")
 
@@ -40,7 +42,9 @@ class OrderCreate(BaseModel):
     customer_name: str = Field(..., min_length=1, description="Customer name")
     shipping_address: str = Field(..., min_length=1, description="Shipping address")
     product_name: str = Field(..., min_length=1, description="Product or item name")
+    sku: str = Field(default="", description="Product SKU for inventory lookup")
     quantity: int = Field(..., ge=1, description="Quantity ordered")
+    reserve_inventory: bool = Field(default=False, description="Reserve inventory on creation")
     status: OrderStatus = Field(
         default=OrderStatus.PENDING, description="Initial status"
     )

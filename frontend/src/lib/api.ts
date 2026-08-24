@@ -197,8 +197,10 @@ export interface Order {
   customer_name: string;
   shipping_address: string;
   product_name: string;
+  sku: string;
   quantity: number;
   status: OrderStatus;
+  inventory_reserved: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -219,6 +221,7 @@ export async function fetchOrders(
   page = 1,
   pageSize = 50,
   statusFilter?: OrderStatus,
+  searchQuery?: string,
 ): Promise<{ ok: true; data: OrderListResponse } | { ok: false; error: string }> {
   try {
     const params = new URLSearchParams({
@@ -226,6 +229,7 @@ export async function fetchOrders(
       page_size: String(pageSize),
     });
     if (statusFilter) params.set("status", statusFilter);
+    if (searchQuery && searchQuery.trim()) params.set("search", searchQuery.trim());
     const res = await fetch(
       `${orderApiBase()}?${params.toString()}`,
       { cache: "no-store" },
@@ -262,6 +266,8 @@ export interface CreateOrderPayload {
   shipping_address: string;
   product_name: string;
   quantity: number;
+  sku?: string;
+  reserve_inventory?: boolean;
 }
 
 export async function createOrder(
@@ -272,6 +278,24 @@ export async function createOrder(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...payload, status: "pending" }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as Order };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function reserveOrderInventory(
+  orderId: string,
+): Promise<{ ok: true; data: Order } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${orderApiBase()}/${orderId}/reserve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -298,6 +322,111 @@ export async function updateOrderStatus(
       return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
     }
     return { ok: true, data: body as Order };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+
+export type InventoryStatus = "in_stock" | "low_stock" | "out_of_stock";
+
+export interface InventoryItem {
+  id: string;
+  sku: string;
+  product_name: string;
+  current_stock: number;
+  reserved_quantity: number;
+  available_quantity: number;
+  low_stock_threshold: number;
+  status: InventoryStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryListResponse {
+  items: InventoryItem[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
+function inventoryApiBase(): string {
+  return `${API_BASE_URL}/api/v1/inventory`;
+}
+
+export async function fetchInventory(
+  page = 1,
+  pageSize = 50,
+  statusFilter?: InventoryStatus,
+  searchQuery?: string,
+): Promise<{ ok: true; data: InventoryListResponse } | { ok: false; error: string }> {
+  try {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (statusFilter) params.set("status", statusFilter);
+    if (searchQuery && searchQuery.trim()) params.set("search", searchQuery.trim());
+    const res = await fetch(
+      `${inventoryApiBase()}?${params.toString()}`,
+      { cache: "no-store" },
+    );
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as InventoryListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export interface CreateInventoryPayload {
+  sku: string;
+  product_name: string;
+  current_stock: number;
+  reserved_quantity?: number;
+  low_stock_threshold?: number;
+}
+
+export async function createInventoryItem(
+  payload: CreateInventoryPayload,
+): Promise<{ ok: true; data: InventoryItem } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(inventoryApiBase(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, reserved_quantity: payload.reserved_quantity ?? 0, low_stock_threshold: payload.low_stock_threshold ?? 10 }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as InventoryItem };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function updateInventoryItem(
+  itemId: string,
+  payload: { current_stock?: number; reserved_quantity?: number; low_stock_threshold?: number },
+): Promise<{ ok: true; data: InventoryItem } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${inventoryApiBase()}/${itemId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as InventoryItem };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }

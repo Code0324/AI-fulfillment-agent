@@ -2,13 +2,14 @@
 
 Covers POST, GET list (paginated + filtered), GET by ID, PATCH —
 plus 404, validation errors, transition validation,
-pagination edge cases, and regression checks.
+pagination edge cases, inventory reservation, and regression checks.
 """
 
 import uuid
 
 import pytest
 
+from app.services.inventory_service import inventory_service
 from app.services.order_service import order_service
 
 
@@ -17,11 +18,13 @@ from app.services.order_service import order_service
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _reset_order_service():
-    """Clear in-memory store before every test so tests are independent."""
+def _reset_services():
+    """Clear in-memory stores before every test so tests are independent."""
     order_service.clear()
+    inventory_service.clear()
     yield
     order_service.clear()
+    inventory_service.clear()
 
 
 ORDER_PAYLOAD = {
@@ -210,7 +213,8 @@ class TestGetOrder:
         resp = client.get(f"/api/v1/orders/{created['id']}").json()
         assert set(resp.keys()) == {
             "id", "customer_name", "shipping_address", "product_name",
-            "quantity", "status", "created_at", "updated_at",
+            "sku", "quantity", "status", "inventory_reserved",
+            "created_at", "updated_at",
         }
         assert resp["customer_name"] == "Jane Doe"
         assert resp["quantity"] == 2
@@ -436,6 +440,209 @@ class TestFilterByStatus:
         _create_order(client, status="shipped")
         resp = client.get("/api/v1/orders").json()
         assert resp["total_items"] == 3
+
+
+# ===========================================================================
+# Search filtering
+# ===========================================================================
+
+class TestSearchOrders:
+    """GET /api/v1/orders?search=... text search."""
+
+    def test_search_by_customer_name(self, client):
+        _create_order(client, customer_name="Alice Smith")
+        _create_order(client, customer_name="Bob Jones")
+        resp = client.get("/api/v1/orders?search=alice").json()
+        assert resp["total_items"] == 1
+        assert resp["items"][0]["customer_name"] == "Alice Smith"
+
+    def test_search_by_product_name(self, client):
+        _create_order(client, product_name="Wireless Mouse")
+        _create_order(client, product_name="USB Keyboard")
+        resp = client.get("/api/v1/orders?search=mouse").json()
+        assert resp["total_items"] == 1
+        assert resp["items"][0]["product_name"] == "Wireless Mouse"
+
+    def test_search_case_insensitive(self, client):
+        _create_order(client, customer_name="Alice Smith")
+        resp = client.get("/api/v1/orders?search=ALICE").json()
+        assert resp["total_items"] == 1
+
+    def test_search_partial_match(self, client):
+        _create_order(client, customer_name="Alice Smith")
+        _create_order(client, customer_name="Alicia Garcia")
+        resp = client.get("/api/v1/orders?search=ali").json()
+        assert resp["total_items"] == 2
+
+    def test_search_no_results(self, client):
+        _create_order(client, customer_name="Alice Smith")
+        resp = client.get("/api/v1/orders?search=nonexistent").json()
+        assert resp["total_items"] == 0
+        assert resp["items"] == []
+
+    def test_search_empty_string_returns_all(self, client):
+        _create_order(client, customer_name="Alice")
+        _create_order(client, customer_name="Bob")
+        resp = client.get("/api/v1/orders?search=").json()
+        assert resp["total_items"] == 2
+
+    def test_search_combined_with_status_filter(self, client):
+        _create_order(client, customer_name="Alice", status="pending")
+        _create_order(client, customer_name="Alice", status="processing")
+        _create_order(client, customer_name="Bob", status="pending")
+        resp = client.get("/api/v1/orders?search=alice&status=pending").json()
+        assert resp["total_items"] == 1
+        assert resp["items"][0]["customer_name"] == "Alice"
+        assert resp["items"][0]["status"] == "pending"
+
+    def test_search_by_order_id_prefix(self, client):
+        created = _create_order(client, customer_name="Test Order")
+        order_id_prefix = created["id"][:8]
+        resp = client.get(f"/api/v1/orders?search={order_id_prefix}").json()
+        assert resp["total_items"] == 1
+        assert resp["items"][0]["id"] == created["id"]
+
+
+# ===========================================================================
+# Inventory reservation integration
+# ===========================================================================
+
+class TestInventoryReservation:
+    """Order ↔ Inventory reservation integration."""
+
+    def _setup_inventory(self, client, sku="MOUSE-001", stock=50):
+        """Create an inventory item and return its JSON."""
+        return client.post(
+            "/api/v1/inventory",
+            json={"sku": sku, "product_name": "Mouse", "current_stock": stock},
+        ).json()
+
+    def test_create_order_with_reserves_inventory(self, client):
+        self._setup_inventory(client, stock=50)
+        payload = {
+            **ORDER_PAYLOAD,
+            "sku": "MOUSE-001",
+            "quantity": 5,
+            "reserve_inventory": True,
+        }
+        resp = client.post("/api/v1/orders", json=payload)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["inventory_reserved"] is True
+        assert body["sku"] == "MOUSE-001"
+        # Check inventory was updated
+        inv = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv["reserved_quantity"] == 5
+        assert inv["available_quantity"] == 45
+
+    def test_create_order_without_reserve(self, client):
+        self._setup_inventory(client, stock=50)
+        payload = {
+            **ORDER_PAYLOAD,
+            "sku": "MOUSE-001",
+            "quantity": 5,
+            "reserve_inventory": False,
+        }
+        resp = client.post("/api/v1/orders", json=payload)
+        assert resp.status_code == 201
+        assert resp.json()["inventory_reserved"] is False
+        # Inventory unchanged
+        inv = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv["reserved_quantity"] == 0
+
+    def test_insufficient_inventory_fails(self, client):
+        self._setup_inventory(client, stock=5)
+        payload = {
+            **ORDER_PAYLOAD,
+            "sku": "MOUSE-001",
+            "quantity": 10,
+            "reserve_inventory": True,
+        }
+        resp = client.post("/api/v1/orders", json=payload)
+        assert resp.status_code == 422
+        assert "error" in resp.json()
+
+    def test_exact_available_quantity_succeeds(self, client):
+        self._setup_inventory(client, stock=10)
+        payload = {
+            **ORDER_PAYLOAD,
+            "sku": "MOUSE-001",
+            "quantity": 10,
+            "reserve_inventory": True,
+        }
+        resp = client.post("/api/v1/orders", json=payload)
+        assert resp.status_code == 201
+        assert resp.json()["inventory_reserved"] is True
+        inv = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv["available_quantity"] == 0
+        assert inv["status"] == "out_of_stock"
+
+    def test_unknown_sku_fails(self, client):
+        payload = {
+            **ORDER_PAYLOAD,
+            "sku": "NONEXISTENT",
+            "quantity": 1,
+            "reserve_inventory": True,
+        }
+        resp = client.post("/api/v1/orders", json=payload)
+        assert resp.status_code == 404
+
+    def test_reserve_existing_order(self, client):
+        self._setup_inventory(client, stock=50)
+        created = _create_order(client, sku="MOUSE-001", quantity=5)
+        assert created["inventory_reserved"] is False
+        resp = client.post(f"/api/v1/orders/{created['id']}/reserve")
+        assert resp.status_code == 200
+        assert resp.json()["inventory_reserved"] is True
+        inv = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv["reserved_quantity"] == 5
+
+    def test_reserve_already_reserved_fails(self, client):
+        self._setup_inventory(client, stock=50)
+        created = _create_order(client, sku="MOUSE-001", quantity=5, reserve_inventory=True)
+        assert created["inventory_reserved"] is True
+        resp = client.post(f"/api/v1/orders/{created['id']}/reserve")
+        assert resp.status_code == 422
+        assert "already reserved" in resp.json()["error"].lower()
+
+    def test_reserve_order_without_sku_fails(self, client):
+        self._setup_inventory(client, stock=50)
+        created = _create_order(client)
+        resp = client.post(f"/api/v1/orders/{created['id']}/reserve")
+        assert resp.status_code == 422
+        assert "sku" in resp.json()["error"].lower()
+
+    def test_cancel_releases_inventory(self, client):
+        self._setup_inventory(client, stock=50)
+        created = _create_order(client, sku="MOUSE-001", quantity=10, reserve_inventory=True)
+        inv_before = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv_before["reserved_quantity"] == 10
+        # Cancel the order
+        resp = client.patch(
+            f"/api/v1/orders/{created['id']}",
+            json={"status": "cancelled"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+        # Check inventory released
+        inv_after = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv_after["reserved_quantity"] == 0
+        assert inv_after["available_quantity"] == 50
+
+    def test_multiple_orders_reserve_cumulatively(self, client):
+        self._setup_inventory(client, stock=50)
+        _create_order(client, sku="MOUSE-001", quantity=10, reserve_inventory=True)
+        _create_order(client, sku="MOUSE-001", quantity=15, reserve_inventory=True)
+        inv = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv["reserved_quantity"] == 25
+        assert inv["available_quantity"] == 25
+
+    def test_reservation_updates_inventory_status(self, client):
+        self._setup_inventory(client, stock=10)
+        _create_order(client, sku="MOUSE-001", quantity=8, reserve_inventory=True)
+        inv = client.get("/api/v1/inventory").json()["items"][0]
+        assert inv["available_quantity"] == 2
+        assert inv["status"] == "low_stock"
 
 
 # ===========================================================================

@@ -11,6 +11,7 @@ import {
   type TaskStatus,
 } from "@/lib/api";
 import OrdersSection from "@/components/OrdersSection";
+import InventorySection from "@/components/InventorySection";
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -355,6 +356,12 @@ export default function FulfillmentDashboard() {
 
         {/* ---- Orders Section ---- */}
         <OrdersSection />
+
+        {/* ---- Divider ---- */}
+        <hr className="border-gray-200" />
+
+        {/* ---- Inventory Section ---- */}
+        <InventorySection />
       </main>
     </div>
   );
