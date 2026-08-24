@@ -2,10 +2,10 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, status as http_status
+from fastapi import APIRouter, Query, status as http_status
 
 from app.core.errors import ValidationError
-from app.schemas.task import Task, TaskCreate, TaskUpdate
+from app.schemas.task import Task, TaskCreate, TaskListResponse, TaskUpdate
 from app.services.task_service import task_service
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -21,10 +21,13 @@ def create_task(payload: TaskCreate | None = None) -> Task:
     return task_service.create(payload or TaskCreate())
 
 
-@router.get("", response_model=list[Task])
-def list_tasks() -> list[Task]:
-    """List all in-memory tasks."""
-    return task_service.list_tasks()
+@router.get("", response_model=TaskListResponse)
+def list_tasks(
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(10, ge=1, le=100, description="Items per page (max 100)"),
+) -> TaskListResponse:
+    """List tasks with pagination."""
+    return task_service.list_tasks_paginated(page=page, page_size=page_size)
 
 
 @router.get("/{task_id}", response_model=Task)

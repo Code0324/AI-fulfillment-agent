@@ -8,8 +8,10 @@ data lives only for the lifetime of the process.
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+import math
+
 from app.core.errors import NotFoundError
-from app.schemas.task import Task, TaskCreate, TaskStatus
+from app.schemas.task import Task, TaskCreate, TaskListResponse, TaskStatus
 
 
 class TaskService:
@@ -40,6 +42,26 @@ class TaskService:
     def list_tasks(self) -> list[Task]:
         """Return all in-memory tasks (insertion order)."""
         return list(self._tasks.values())
+
+    def list_tasks_paginated(
+        self, *, page: int = 1, page_size: int = 10
+    ) -> TaskListResponse:
+        """Return a paginated slice of tasks with metadata."""
+        all_tasks = list(self._tasks.values())
+        total_items = len(all_tasks)
+        total_pages = math.ceil(total_items / page_size) if total_items else 0
+
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = all_tasks[start:end]
+
+        return TaskListResponse(
+            items=items,
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        )
 
     def update_status(self, task_id: UUID, status: TaskStatus) -> Task:
         """Update only the status of an existing task."""

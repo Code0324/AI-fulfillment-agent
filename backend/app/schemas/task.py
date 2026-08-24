@@ -44,3 +44,13 @@ class TaskUpdate(BaseModel):
     """Payload for updating a task (future use)."""
 
     status: TaskStatus | None = Field(None, description="New status value")
+
+
+class TaskListResponse(BaseModel):
+    """Paginated response for task list endpoints."""
+
+    items: list[Task] = Field(..., description="Page of tasks")
+    page: int = Field(..., ge=1, description="Current page number (1-indexed)")
+    page_size: int = Field(..., ge=1, description="Items per page")
+    total_items: int = Field(..., ge=0, description="Total number of tasks")
+    total_pages: int = Field(..., ge=0, description="Total number of pages")
