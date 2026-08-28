@@ -2,7 +2,14 @@
 
 Covers POST, GET list (paginated + filtered), GET by ID, PATCH —
 plus 404, validation errors, transition validation,
-pagination edge cases, inventory reservation, and regression checks.
+pagination edge cases, inventory reservation, organization isolation,
+and regression checks.
+
+Every order endpoint requires real authentication as of Phase 2B (JWT ->
+get_current_user -> get_current_organization), so every test in this file
+runs against a real, freshly-signed-up user + organization via the
+`_authenticate` autouse fixture below — never a default/fallback
+organization, and never a bypass of authentication.
 """
 
 import uuid
@@ -12,6 +19,8 @@ import pytest
 from app.services.inventory_service import inventory_service
 from app.services.order_service import order_service
 
+from tests.conftest import auth_headers
+
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -19,12 +28,29 @@ from app.services.order_service import order_service
 
 @pytest.fixture(autouse=True)
 def _reset_services():
-    """Clear in-memory stores before every test so tests are independent."""
+    """Clear all orders/inventory (across every organization) before every
+    test so tests are independent. PostgreSQL-backed as of Phase 2B, but
+    still fine to blanket-clear between tests: this is test cleanup, not
+    production behavior."""
     order_service.clear()
     inventory_service.clear()
     yield
     order_service.clear()
     inventory_service.clear()
+
+
+@pytest.fixture(autouse=True)
+def _authenticate(client):
+    """Sign up a fresh real user + real organization through the actual
+    /auth/signup + /organizations HTTP flow, and attach a real bearer token
+    to every request the shared `client` makes for the duration of this
+    test. Runs after `client`'s own setup (which starts from a logged-out
+    state) and before the test body, so every existing test in this file
+    that calls client.post/get/patch without its own explicit
+    Authorization header is still exercising the real authenticated path —
+    not a bypass.
+    """
+    client.headers.update(auth_headers(client))
 
 
 ORDER_PAYLOAD = {
@@ -35,10 +61,16 @@ ORDER_PAYLOAD = {
 }
 
 
-def _create_order(client, **overrides):
-    """Helper: create an order and return the response JSON."""
+def _create_order(client, headers=None, **overrides):
+    """Helper: create an order and return the response JSON.
+
+    Without an explicit `headers`, uses the client's current default
+    Authorization (the organization set up by the `_authenticate` autouse
+    fixture). Pass `headers` explicitly to create the order under a
+    *different* organization -- see TestOrganizationIsolation.
+    """
     payload = {**ORDER_PAYLOAD, **overrides}
-    return client.post("/api/v1/orders", json=payload).json()
+    return client.post("/api/v1/orders", json=payload, headers=headers).json()
 
 
 # ===========================================================================
@@ -643,6 +675,130 @@ class TestInventoryReservation:
         inv = client.get("/api/v1/inventory").json()["items"][0]
         assert inv["available_quantity"] == 2
         assert inv["status"] == "low_stock"
+
+
+# ===========================================================================
+# Authentication — every order endpoint requires a real JWT + organization
+# ===========================================================================
+
+class TestAuthentication:
+    """No default/fallback organization: every order endpoint must reject
+    unauthenticated requests, and must never trust a client-supplied
+    organization_id as an authorization source."""
+
+    def test_create_without_token_returns_401(self, client):
+        client.headers.pop("Authorization", None)
+        resp = client.post("/api/v1/orders", json=ORDER_PAYLOAD)
+        assert resp.status_code == 401
+
+    def test_list_without_token_returns_401(self, client):
+        client.headers.pop("Authorization", None)
+        resp = client.get("/api/v1/orders")
+        assert resp.status_code == 401
+
+    def test_get_without_token_returns_401(self, client):
+        created = _create_order(client)
+        client.headers.pop("Authorization", None)
+        resp = client.get(f"/api/v1/orders/{created['id']}")
+        assert resp.status_code == 401
+
+    def test_update_without_token_returns_401(self, client):
+        created = _create_order(client)
+        client.headers.pop("Authorization", None)
+        resp = client.patch(f"/api/v1/orders/{created['id']}", json={"status": "processing"})
+        assert resp.status_code == 401
+
+    def test_reserve_without_token_returns_401(self, client):
+        created = _create_order(client)
+        client.headers.pop("Authorization", None)
+        resp = client.post(f"/api/v1/orders/{created['id']}/reserve")
+        assert resp.status_code == 401
+
+    def test_invalid_token_returns_401(self, client):
+        client.headers["Authorization"] = "Bearer not-a-real-token"
+        resp = client.post("/api/v1/orders", json=ORDER_PAYLOAD)
+        assert resp.status_code == 401
+
+    def test_client_supplied_organization_id_is_not_trusted(self, client):
+        """A client-supplied organization_id in the request body must never
+        determine order ownership -- the server always derives it from the
+        authenticated user's real organization membership."""
+        other_org_id = str(uuid.uuid4())
+        payload = {**ORDER_PAYLOAD, "organization_id": other_org_id}
+        resp = client.post("/api/v1/orders", json=payload)
+        assert resp.status_code == 201
+        # The order was created under the caller's real (authenticated)
+        # organization, not the fabricated one from the request body: it
+        # shows up in this same authenticated caller's own list.
+        listed_ids = {o["id"] for o in client.get("/api/v1/orders").json()["items"]}
+        assert resp.json()["id"] in listed_ids
+
+
+# ===========================================================================
+# Organization isolation
+# ===========================================================================
+
+class TestOrganizationIsolation:
+    """Two different real organizations must never see or modify each
+    other's orders. A cross-organization lookup behaves identically to a
+    missing order (404) -- existence is never leaked."""
+
+    def test_org_a_cannot_read_org_b_order(self, client):
+        org_a_headers = dict(client.headers)
+        order_a = _create_order(client, customer_name="Org A Customer")
+
+        org_b_headers = auth_headers(client)
+        order_b = _create_order(client, customer_name="Org B Customer", headers=org_b_headers)
+
+        resp = client.get(f"/api/v1/orders/{order_b['id']}", headers=org_a_headers)
+        assert resp.status_code == 404
+
+        resp = client.get(f"/api/v1/orders/{order_a['id']}", headers=org_b_headers)
+        assert resp.status_code == 404
+
+    def test_list_is_scoped_to_caller_organization(self, client):
+        org_a_headers = dict(client.headers)
+        order_a = _create_order(client, customer_name="Org A Customer")
+
+        org_b_headers = auth_headers(client)
+        order_b = _create_order(client, customer_name="Org B Customer", headers=org_b_headers)
+
+        ids_a = {o["id"] for o in client.get("/api/v1/orders", headers=org_a_headers).json()["items"]}
+        assert ids_a == {order_a["id"]}
+
+        ids_b = {o["id"] for o in client.get("/api/v1/orders", headers=org_b_headers).json()["items"]}
+        assert ids_b == {order_b["id"]}
+
+    def test_org_a_cannot_update_org_b_order(self, client):
+        org_a_headers = dict(client.headers)
+
+        org_b_headers = auth_headers(client)
+        order_b = _create_order(client, customer_name="Org B Customer", headers=org_b_headers)
+
+        resp = client.patch(
+            f"/api/v1/orders/{order_b['id']}",
+            json={"status": "processing"},
+            headers=org_a_headers,
+        )
+        assert resp.status_code == 404
+
+        # Order B is genuinely untouched.
+        still_pending = client.get(f"/api/v1/orders/{order_b['id']}", headers=org_b_headers).json()
+        assert still_pending["status"] == "pending"
+
+    def test_org_a_cannot_reserve_inventory_on_org_b_order(self, client):
+        org_a_headers = dict(client.headers)
+
+        org_b_headers = auth_headers(client)
+        client.post(
+            "/api/v1/inventory",
+            json={"sku": "ISO-SKU", "product_name": "Widget", "current_stock": 10},
+            headers=org_b_headers,
+        )
+        order_b = _create_order(client, sku="ISO-SKU", quantity=1, headers=org_b_headers)
+
+        resp = client.post(f"/api/v1/orders/{order_b['id']}/reserve", headers=org_a_headers)
+        assert resp.status_code == 404
 
 
 # ===========================================================================
