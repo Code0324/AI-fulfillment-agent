@@ -17,7 +17,7 @@ def test_app_loads():
 def test_settings_defaults():
     """Settings load with sensible defaults."""
     assert settings.APP_NAME == "Amazon AI Fulfillment Assistant"
-    assert settings.APP_VERSION == "0.1.0"
+    assert settings.APP_VERSION == "0.2.0"
     assert settings.BACKEND_PORT == 8000
     assert settings.FRONTEND_PORT == 3000
 

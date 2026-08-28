@@ -1,5 +1,5 @@
-import FulfillmentDashboard from "@/components/FulfillmentDashboard";
+import LandingPage from "@/components/LandingPage";
 
 export default function Home() {
-  return <FulfillmentDashboard />;
+  return <LandingPage />;
 }

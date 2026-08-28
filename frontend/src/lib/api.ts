@@ -544,3 +544,505 @@ export async function fillAutomationForm(
     return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Address Processing
+// ---------------------------------------------------------------------------
+
+export type AddressProcessingStatus = "pending" | "processed" | "needs_review" | "failed";
+
+export interface ValidationIssue {
+  field: string;
+  message: string;
+  severity: "error" | "warning" | "info";
+}
+
+export interface AddressProcessingResult {
+  id: string;
+  raw_address: string;
+  first_name: string;
+  last_name: string;
+  address_line_1: string;
+  address_line_2: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  phone: string;
+  status: AddressProcessingStatus;
+  confidence: number;
+  validation_issues: ValidationIssue[];
+  review_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AddressProcessingListResponse {
+  items: AddressProcessingResult[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
+function addressApiBase(): string {
+  return `${API_BASE_URL}/api/v1/address`;
+}
+
+export async function parseAddress(
+  rawAddress: string,
+): Promise<{ ok: true; data: AddressProcessingResult } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${addressApiBase()}/parse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ raw_address: rawAddress }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AddressProcessingResult };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fetchAddressResults(
+  page = 1,
+  pageSize = 50,
+  statusFilter?: AddressProcessingStatus,
+): Promise<{ ok: true; data: AddressProcessingListResponse } | { ok: false; error: string }> {
+  try {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (statusFilter) params.set("status", statusFilter);
+    const res = await fetch(
+      `${addressApiBase()}?${params.toString()}`,
+      { cache: "no-store" },
+    );
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AddressProcessingListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function reviewAddress(
+  resultId: string,
+  action: "approve" | "correct" | "reject",
+  corrections?: Partial<NormalizedAddress>,
+): Promise<{ ok: true; data: AddressProcessingResult } | { ok: false; error: string }> {
+  try {
+    const payload: Record<string, unknown> = { action, ...corrections };
+    const res = await fetch(`${addressApiBase()}/${resultId}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AddressProcessingResult };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fulfillment
+// ---------------------------------------------------------------------------
+
+export type FulfillmentStatus =
+  | "pending"
+  | "running"
+  | "waiting_approval"
+  | "approved"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export type FulfillmentStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "waiting_approval";
+
+export interface FulfillmentStep {
+  name: string;
+  description: string;
+  status: FulfillmentStepStatus;
+  result: string | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface SupplierOrderPayload {
+  sku: string;
+  product_name: string;
+  quantity: number;
+  first_name: string;
+  last_name: string;
+  address_line_1: string;
+  address_line_2: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  phone: string;
+  shipping_method: string;
+}
+
+export interface FulfillmentConfirmation {
+  confirmation_id: string;
+  supplier: string;
+  status: string;
+  submitted_at: string;
+  estimated_delivery: string;
+}
+
+export interface FulfillmentWorkflow {
+  id: string;
+  order_id: string;
+  status: FulfillmentStatus;
+  steps: FulfillmentStep[];
+  current_step: number;
+  supplier_payload: SupplierOrderPayload | null;
+  confirmation: FulfillmentConfirmation | null;
+  approval_request_id: string | null;
+  approval_requested_at: string | null;
+  approval_expires_at: string | null;
+  retry_count: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FulfillmentListResponse {
+  items: FulfillmentWorkflow[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
+function fulfillmentApiBase(): string {
+  return `${API_BASE_URL}/api/v1/fulfillment`;
+}
+
+export async function startFulfillment(
+  orderId: string,
+  shippingMethod: string = "standard",
+): Promise<{ ok: true; data: FulfillmentWorkflow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${fulfillmentApiBase()}/${orderId}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shipping_method: shippingMethod }),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentWorkflow };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fetchFulfillmentWorkflows(
+  page = 1,
+  pageSize = 50,
+): Promise<{ ok: true; data: FulfillmentListResponse } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${fulfillmentApiBase()}?page=${page}&page_size=${pageSize}`,
+      { cache: "no-store" },
+    );
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fetchFulfillmentWorkflow(
+  workflowId: string,
+): Promise<{ ok: true; data: FulfillmentWorkflow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${fulfillmentApiBase()}/${workflowId}`, {
+      cache: "no-store",
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentWorkflow };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function approveFulfillment(
+  workflowId: string,
+): Promise<{ ok: true; data: FulfillmentWorkflow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentWorkflow };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function rejectFulfillment(
+  workflowId: string,
+): Promise<{ ok: true; data: FulfillmentWorkflow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentWorkflow };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function cancelFulfillment(
+  workflowId: string,
+): Promise<{ ok: true; data: FulfillmentWorkflow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentWorkflow };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function retryFulfillment(
+  workflowId: string,
+): Promise<{ ok: true; data: FulfillmentWorkflow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentWorkflow };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
+
+export interface ProviderInfo {
+  name: string;
+  environment: string;
+  is_mock: boolean;
+  capabilities: Record<string, boolean>;
+}
+
+export interface ProviderListResponse {
+  providers: ProviderInfo[];
+  mock_only: boolean;
+  environment: string;
+  notice: string;
+}
+
+function providersApiBase(): string {
+  return `${API_BASE_URL}/api/v1/providers`;
+}
+
+export async function fetchProviders(): Promise<{ ok: true; data: ProviderListResponse } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${providersApiBase()}`, { cache: "no-store" });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as ProviderListResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Amazon Sandbox (CHUNK 1V)
+// ---------------------------------------------------------------------------
+
+export interface AmazonConnectionStatus {
+  configured: boolean;
+  sandbox: boolean;
+  environment: string;
+  mode: string;
+  region?: string;
+  marketplace_id?: string;
+  credentials_available?: boolean;
+  token_expires_in?: number;
+  token_refresh_count?: number;
+  request_stats?: {
+    total_requests: number;
+    successful_requests: number;
+    failed_requests: number;
+    is_sandbox: boolean;
+  };
+  orders_retrieved?: number;
+  orders_normalized?: number;
+  provider?: string;
+  notice?: string;
+}
+
+export interface AmazonOrder {
+  order_id: string;
+  amazon_order_id?: string;
+  sku: string;
+  product_name: string;
+  quantity: number;
+  customer_name: string;
+  shipping_address: string;
+  order_status: string;
+  fulfillment_channel?: string;
+  purchase_date?: string;
+  source: string;
+  marketplace_id?: string;
+  created_at: string;
+}
+
+export interface AmazonOrdersResponse {
+  orders: AmazonOrder[];
+  total: number;
+  provider: string | null;
+  sandbox: boolean;
+  environment: string;
+  mode: string;
+  notice?: string;
+}
+
+export interface AmazonImportResponse {
+  imported: string[];
+  total: number;
+  provider: string | null;
+  sandbox: boolean;
+  environment: string;
+  notice?: string;
+}
+
+export interface AmazonInfo {
+  api_version: string;
+  sandbox: boolean;
+  environment: string;
+  mode: string;
+  endpoints: Record<string, string>;
+  rate_limits: {
+    requests_per_second: number;
+    burst: number;
+  };
+  supported_operations: string[];
+  blocked_operations: string[];
+  notice: string;
+}
+
+function amazonApiBase(): string {
+  return `${API_BASE_URL}/api/v1/amazon`;
+}
+
+export async function fetchAmazonStatus(): Promise<{ ok: true; data: AmazonConnectionStatus } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${amazonApiBase()}/status`, { cache: "no-store" });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AmazonConnectionStatus };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fetchAmazonOrders(
+  limit = 50,
+  offset = 0,
+): Promise<{ ok: true; data: AmazonOrdersResponse } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${amazonApiBase()}/orders?limit=${limit}&offset=${offset}`,
+      { cache: "no-store" },
+    );
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AmazonOrdersResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function importAmazonOrders(
+  orderIds?: string[],
+): Promise<{ ok: true; data: AmazonImportResponse } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${amazonApiBase()}/orders/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(orderIds ?? []),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AmazonImportResponse };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function fetchAmazonInfo(): Promise<{ ok: true; data: AmazonInfo } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${amazonApiBase()}/info`, { cache: "no-store" });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as AmazonInfo };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}

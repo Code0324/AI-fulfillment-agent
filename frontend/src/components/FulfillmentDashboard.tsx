@@ -13,6 +13,10 @@ import {
 import OrdersSection from "@/components/OrdersSection";
 import InventorySection from "@/components/InventorySection";
 import AutomationSandbox from "@/components/AutomationSandbox";
+import AddressProcessing from "@/components/AddressProcessing";
+import FulfillmentWorkflowComponent from "@/components/FulfillmentWorkflow";
+import MockAmazonOrders from "@/components/MockAmazonOrders";
+import AmazonSandboxStatus from "@/components/AmazonSandboxStatus";
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -91,7 +95,7 @@ export default function FulfillmentDashboard() {
   const loadTasks = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await fetchTasks(1, 200);
+    const result = await fetchTasks(1, 100);
     if (result.ok) {
       setTasks(result.data.items);
     } else {
@@ -363,6 +367,30 @@ export default function FulfillmentDashboard() {
 
         {/* ---- Inventory Section ---- */}
         <InventorySection />
+
+        {/* ---- Divider ---- */}
+        <hr className="border-gray-200" />
+
+        {/* ---- Fulfillment Workflow Section ---- */}
+        <FulfillmentWorkflowComponent />
+
+        {/* ---- Divider ---- */}
+        <hr className="border-gray-200" />
+
+        {/* ---- Address Processing Section ---- */}
+        <AddressProcessing />
+
+        {/* ---- Divider ---- */}
+        <hr className="border-gray-200" />
+
+        {/* ---- Amazon Sandbox Status Section ---- */}
+        <AmazonSandboxStatus />
+
+        {/* ---- Divider ---- */}
+        <hr className="border-gray-200" />
+
+        {/* ---- Mock Amazon Orders Section ---- */}
+        <MockAmazonOrders />
 
         {/* ---- Divider ---- */}
         <hr className="border-gray-200" />

@@ -1,3 +1,0 @@
-Mock screenshot: form_fill_19170472-21ad-411c-8421-cafe93ed85d4
-URL: 
-Form data: {'#first_name': 'Test', '#last_name': 'Customer', '#address1': '123 Test Street', '#address2': 'Apt 4', '#city': 'Testville', '#state': 'CA', '#zip': '90210', '#country': 'US', '#phone': '555-0123', '#shipping_method': 'express'}

@@ -493,3 +493,56 @@ class TestRegressionExistingRoutes:
         resp = client.get("/api/v1/status")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
+
+
+# ===========================================================================
+# Concurrency — reservation must never oversell under concurrent requests
+# ===========================================================================
+
+class TestConcurrentReservation:
+    """Regression: reserve() must serialize compound read-modify-write.
+
+    Without locking, concurrent threads can each read the same
+    available_quantity, all pass the check, and collectively reserve more
+    than current_stock — a real oversell bug under concurrent order
+    submission (e.g. duplicate clicks, retried requests, race between
+    orders for the same tight-stock SKU).
+    """
+
+    def test_concurrent_reserve_never_exceeds_stock(self, client):
+        import threading
+
+        item = _create_inventory(
+            client, sku="RACE-SKU", current_stock=10, reserved_quantity=0
+        )
+
+        successes = []
+        lock = threading.Lock()
+
+        threads = [
+            threading.Thread(target=_safe_reserve, args=(successes, lock))
+            for _ in range(10)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        final = inventory_service.find_by_sku("RACE-SKU")
+        assert final.reserved_quantity <= final.current_stock, (
+            f"Oversold: reserved={final.reserved_quantity} "
+            f"stock={final.current_stock}"
+        )
+        # 10 concurrent requests for 3 units each against 10 in stock:
+        # exactly 3 can succeed (9 <= 10), the rest must be rejected.
+        assert len(successes) == 3
+
+
+def _safe_reserve(successes, lock):
+    """Helper: attempt a reservation, recording only successes."""
+    try:
+        inventory_service.reserve("RACE-SKU", 3)
+        with lock:
+            successes.append(1)
+    except Exception:
+        pass

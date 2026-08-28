@@ -110,7 +110,7 @@ export default function InventorySection() {
   const loadItems = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await fetchInventory(1, 200, statusFilter, debouncedSearch || undefined);
+    const result = await fetchInventory(1, 100, statusFilter, debouncedSearch || undefined);
     if (result.ok) {
       setItems(result.data.items);
     } else {
@@ -132,7 +132,7 @@ export default function InventorySection() {
   });
 
   const loadAllCounts = useCallback(async () => {
-    const result = await fetchInventory(1, 200);
+    const result = await fetchInventory(1, 100);
     if (result.ok) {
       const counts: Record<InventoryStatus, number> = { in_stock: 0, low_stock: 0, out_of_stock: 0 };
       for (const i of result.data.items) {

@@ -4,9 +4,15 @@ AI-powered order fulfillment workspace for Amazon sellers.
 
 ## Current Development Phase
 
-**Chunk 1A — Project Foundation**
+**Chunk 1Y — Amazon Production Activation Gate** (see [docs/roadmap.md](docs/roadmap.md) for full chunk history)
 
-This is the initial project setup. Only the basic structure, frontend shell, and backend health endpoint exist. No business features have been implemented yet.
+The backend implements orders, inventory reservation, address processing, a
+supplier fulfillment workflow with human-approval gating, a browser
+automation sandbox, and a read-only Amazon SP-API integration layer — all
+backed by in-memory storage (no database yet) and mock/sandbox providers.
+User authentication is not implemented; the frontend login/register pages
+are non-functional placeholders. See [docs/architecture.md](docs/architecture.md)
+and the `docs/chunk-*-final-report.md` files for details on what exists.
 
 ## Technology Stack
 
@@ -70,16 +76,14 @@ Expected response:
 
 ## Current Limitations
 
-- No database connection
-- No Amazon API integration
-- No AI agents
-- No browser automation
-- No authentication
-- No order processing
-- No supplier/3PL integration
+- No database — all data (orders, inventory, workflows) is in-memory and reset on restart
+- No user authentication — login/register pages are UI-only, not wired to a backend
+- Amazon integration is read-only and requires real SP-API credentials to connect
+  to Amazon's sandbox; without credentials the system runs in mock-only mode
+  (see `docs/amazon-human-activation-checklist.md`)
+- No real supplier/3PL integration — the supplier fulfillment flow is a
+  synthetic sandbox for demonstrating the workflow and approval gate
 - No payment functionality
-
-This is intentional — Chunk 1A only creates the project foundation.
 
 ## Future Roadmap
 

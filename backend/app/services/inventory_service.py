@@ -6,6 +6,7 @@ data lives only for the lifetime of the process.
 """
 
 import math
+import threading
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -36,6 +37,10 @@ class InventoryService:
 
     def __init__(self) -> None:
         self._items: dict[UUID, InventoryItem] = {}
+        # Reentrant lock: serializes compound read-modify-write operations
+        # (reserve/release/update) so concurrent requests can't both pass an
+        # availability check before either commits, which would oversell stock.
+        self._lock = threading.RLock()
 
     def _build_item(
         self,
@@ -67,24 +72,25 @@ class InventoryService:
 
     def create(self, payload: InventoryCreate) -> InventoryItem:
         """Create a new inventory item."""
-        if payload.reserved_quantity > payload.current_stock:
-            raise ValidationError(
-                f"Reserved quantity ({payload.reserved_quantity}) cannot exceed "
-                f"current stock ({payload.current_stock})"
+        with self._lock:
+            if payload.reserved_quantity > payload.current_stock:
+                raise ValidationError(
+                    f"Reserved quantity ({payload.reserved_quantity}) cannot exceed "
+                    f"current stock ({payload.current_stock})"
+                )
+            now = datetime.now(timezone.utc)
+            item = self._build_item(
+                id=uuid4(),
+                sku=payload.sku,
+                product_name=payload.product_name,
+                current_stock=payload.current_stock,
+                reserved_quantity=payload.reserved_quantity,
+                low_stock_threshold=payload.low_stock_threshold,
+                created_at=now,
+                updated_at=now,
             )
-        now = datetime.now(timezone.utc)
-        item = self._build_item(
-            id=uuid4(),
-            sku=payload.sku,
-            product_name=payload.product_name,
-            current_stock=payload.current_stock,
-            reserved_quantity=payload.reserved_quantity,
-            low_stock_threshold=payload.low_stock_threshold,
-            created_at=now,
-            updated_at=now,
-        )
-        self._items[item.id] = item
-        return item
+            self._items[item.id] = item
+            return item
 
     def get(self, item_id: UUID) -> InventoryItem:
         """Return one inventory item by ID or raise NotFoundError."""
@@ -131,32 +137,33 @@ class InventoryService:
 
     def update(self, item_id: UUID, payload: InventoryUpdate) -> InventoryItem:
         """Update an inventory item with validation."""
-        item = self.get(item_id)
+        with self._lock:
+            item = self.get(item_id)
 
-        # Apply updates
-        new_stock = payload.current_stock if payload.current_stock is not None else item.current_stock
-        new_reserved = payload.reserved_quantity if payload.reserved_quantity is not None else item.reserved_quantity
-        new_threshold = payload.low_stock_threshold if payload.low_stock_threshold is not None else item.low_stock_threshold
+            # Apply updates
+            new_stock = payload.current_stock if payload.current_stock is not None else item.current_stock
+            new_reserved = payload.reserved_quantity if payload.reserved_quantity is not None else item.reserved_quantity
+            new_threshold = payload.low_stock_threshold if payload.low_stock_threshold is not None else item.low_stock_threshold
 
-        if new_reserved > new_stock:
-            raise ValidationError(
-                f"Reserved quantity ({new_reserved}) cannot exceed "
-                f"current stock ({new_stock})"
+            if new_reserved > new_stock:
+                raise ValidationError(
+                    f"Reserved quantity ({new_reserved}) cannot exceed "
+                    f"current stock ({new_stock})"
+                )
+
+            now = datetime.now(timezone.utc)
+            updated = self._build_item(
+                id=item.id,
+                sku=item.sku,
+                product_name=item.product_name,
+                current_stock=new_stock,
+                reserved_quantity=new_reserved,
+                low_stock_threshold=new_threshold,
+                created_at=item.created_at,
+                updated_at=now,
             )
-
-        now = datetime.now(timezone.utc)
-        updated = self._build_item(
-            id=item.id,
-            sku=item.sku,
-            product_name=item.product_name,
-            current_stock=new_stock,
-            reserved_quantity=new_reserved,
-            low_stock_threshold=new_threshold,
-            created_at=item.created_at,
-            updated_at=now,
-        )
-        self._items[item_id] = updated
-        return updated
+            self._items[item_id] = updated
+            return updated
 
     def find_by_sku(self, sku: str) -> InventoryItem | None:
         """Return an inventory item by SKU or None if not found."""
@@ -172,21 +179,22 @@ class InventoryService:
         Raises NotFoundError if SKU not found.
         Raises ValidationError if available quantity is insufficient.
         """
-        item = self.find_by_sku(sku)
-        if item is None:
-            raise NotFoundError(f"No inventory item found for SKU '{sku}'")
-        if quantity < 1:
-            raise ValidationError("Reservation quantity must be at least 1")
-        if quantity > item.available_quantity:
-            raise ValidationError(
-                f"Insufficient inventory for SKU '{sku}': "
-                f"requested {quantity}, available {item.available_quantity}"
+        with self._lock:
+            item = self.find_by_sku(sku)
+            if item is None:
+                raise NotFoundError(f"No inventory item found for SKU '{sku}'")
+            if quantity < 1:
+                raise ValidationError("Reservation quantity must be at least 1")
+            if quantity > item.available_quantity:
+                raise ValidationError(
+                    f"Insufficient inventory for SKU '{sku}': "
+                    f"requested {quantity}, available {item.available_quantity}"
+                )
+            new_reserved = item.reserved_quantity + quantity
+            return self.update(
+                item.id,
+                InventoryUpdate(reserved_quantity=new_reserved),
             )
-        new_reserved = item.reserved_quantity + quantity
-        return self.update(
-            item.id,
-            InventoryUpdate(reserved_quantity=new_reserved),
-        )
 
     def release(self, sku: str, quantity: int) -> InventoryItem:
         """
@@ -195,21 +203,22 @@ class InventoryService:
         Raises NotFoundError if SKU not found.
         Raises ValidationError if quantity exceeds reserved.
         """
-        item = self.find_by_sku(sku)
-        if item is None:
-            raise NotFoundError(f"No inventory item found for SKU '{sku}'")
-        if quantity < 1:
-            raise ValidationError("Release quantity must be at least 1")
-        if quantity > item.reserved_quantity:
-            raise ValidationError(
-                f"Cannot release {quantity} from SKU '{sku}': "
-                f"only {item.reserved_quantity} reserved"
+        with self._lock:
+            item = self.find_by_sku(sku)
+            if item is None:
+                raise NotFoundError(f"No inventory item found for SKU '{sku}'")
+            if quantity < 1:
+                raise ValidationError("Release quantity must be at least 1")
+            if quantity > item.reserved_quantity:
+                raise ValidationError(
+                    f"Cannot release {quantity} from SKU '{sku}': "
+                    f"only {item.reserved_quantity} reserved"
+                )
+            new_reserved = item.reserved_quantity - quantity
+            return self.update(
+                item.id,
+                InventoryUpdate(reserved_quantity=new_reserved),
             )
-        new_reserved = item.reserved_quantity - quantity
-        return self.update(
-            item.id,
-            InventoryUpdate(reserved_quantity=new_reserved),
-        )
 
     def clear(self) -> None:
         """Remove all inventory items (used by tests to reset state)."""

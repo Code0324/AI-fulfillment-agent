@@ -124,7 +124,7 @@ export default function OrdersSection() {
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await fetchOrders(1, 200, statusFilter, debouncedSearch || undefined);
+    const result = await fetchOrders(1, 100, statusFilter, debouncedSearch || undefined);
     if (result.ok) {
       setOrders(result.data.items);
     } else {
@@ -146,7 +146,7 @@ export default function OrdersSection() {
   });
 
   const loadAllCounts = useCallback(async () => {
-    const result = await fetchOrders(1, 200);
+    const result = await fetchOrders(1, 100);
     if (result.ok) {
       const counts: Record<OrderStatus, number> = {
         pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0,
