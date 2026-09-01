@@ -6,9 +6,12 @@ import DashboardShell from "@/components/dashboard/DashboardShell";
 import {
   fetchOrders,
   fetchInventory,
+  fetchDashboardSummary,
   type Order,
   type OrderStatus,
   type InventoryItem,
+  type DashboardSummary,
+  type ConnectionState,
 } from "@/lib/api";
 import {
   ShoppingCart,
@@ -16,7 +19,196 @@ import {
   TrendingUp,
   Warehouse,
   AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Clock,
+  XCircle,
 } from "lucide-react";
+
+// ---------------------------------------------------------------------------
+// AI Fulfillment Control Center — connections, automation summary, activity
+// feed, and the human-approval queue. This is the automation-first view;
+// the order/inventory panels below remain for anyone who wants the
+// generic operational detail.
+// ---------------------------------------------------------------------------
+
+const CONNECTION_STATE_META: Record<
+  ConnectionState,
+  { label: string; dot: string; text: string; border: string; bg: string }
+> = {
+  NOT_CONFIGURED: { label: "Not Configured", dot: "bg-yellow-400", text: "text-yellow-700", border: "border-yellow-200", bg: "bg-yellow-50" },
+  CONNECTION_ERROR: { label: "Connection Error", dot: "bg-red-500", text: "text-red-700", border: "border-red-200", bg: "bg-red-50" },
+  CONNECTED: { label: "Connected", dot: "bg-green-500", text: "text-green-700", border: "border-green-200", bg: "bg-green-50" },
+};
+
+function ConnectionBadge({
+  label,
+  state,
+  detail,
+  error,
+}: {
+  label: string;
+  state: ConnectionState;
+  detail?: string;
+  error?: string;
+}) {
+  const meta = CONNECTION_STATE_META[state];
+  return (
+    <div className={`rounded-lg border p-3 flex items-center justify-between ${meta.border} ${meta.bg}`} title={error}>
+      <div>
+        <p className="text-sm font-semibold text-gray-800">{label}</p>
+        {detail && <p className="text-xs text-gray-500 mt-0.5">{detail}</p>}
+      </div>
+      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${meta.text}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+        {meta.label}
+      </span>
+    </div>
+  );
+}
+
+const ACTIVITY_ICON: Record<string, string> = {
+  success: "✓",
+  warning: "⚠",
+  error: "✗",
+  info: "•",
+};
+
+const ACTIVITY_COLOR: Record<string, string> = {
+  success: "text-green-700",
+  warning: "text-yellow-700",
+  error: "text-red-700",
+  info: "text-gray-500",
+};
+
+function ControlCenter() {
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const result = await fetchDashboardSummary();
+    if (result.ok) {
+      setSummary(result.data);
+      setSummaryError(null);
+    } else {
+      setSummaryError(result.error);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const countCards = summary
+    ? [
+        { label: "New TikTok Orders", value: summary.counts.new, icon: ShoppingCart, color: "text-brand-blue", bg: "bg-blue-50" },
+        { label: "Processing", value: summary.counts.processing, icon: Bot, color: "text-purple-600", bg: "bg-purple-50" },
+        { label: "Awaiting Approval", value: summary.counts.awaiting_approval, icon: Clock, color: "text-yellow-600", bg: "bg-yellow-50" },
+        { label: "Completed", value: summary.counts.completed, icon: CheckCircle2, color: "text-green-600", bg: "bg-green-50" },
+        { label: "Errors", value: summary.counts.errors, icon: XCircle, color: "text-red-600", bg: "bg-red-50" },
+      ]
+    : [];
+
+  return (
+    <div className="mb-8 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold text-gray-900">AI Fulfillment Control Center</h1>
+        <p className="text-sm text-gray-400">The agent handles routine steps automatically — you&apos;re needed where it says so below.</p>
+      </div>
+
+      {summaryError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm" role="alert">
+          {summaryError}
+        </div>
+      )}
+
+      {summary && (
+        <>
+          {/* Connections */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <ConnectionBadge label="TikTok Shop" state={summary.connections.tiktok.status} detail={summary.connections.tiktok.environment} error={summary.connections.tiktok.error} />
+            <ConnectionBadge label="Google Sheets" state={summary.connections.google_sheets.status} error={summary.connections.google_sheets.error} />
+            <ConnectionBadge label="Amazon Account" state={summary.connections.amazon.status} detail={summary.connections.amazon.environment} error={summary.connections.amazon.error} />
+            <ConnectionBadge label="Database" state={summary.connections.database.status} detail={summary.connections.database.healthy ? "Healthy" : undefined} />
+          </div>
+
+          {/* Automation summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+            {countCards.map((c) => (
+              <div key={c.label} className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center mb-2`}>
+                  <c.icon className={`w-4 h-4 ${c.color}`} />
+                </div>
+                <p className="text-xl font-bold text-gray-900">{c.value}</p>
+                <p className="text-xs text-gray-500">{c.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Activity feed */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-base font-bold text-gray-900 mb-3">Automation Activity</h2>
+              {summary.activity.length === 0 ? (
+                <p className="text-sm text-gray-400">No TikTok order activity yet — sync orders from the Orders page to get started.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {summary.activity.map((line, i) => (
+                    <li key={i} className={`text-sm ${ACTIVITY_COLOR[line.level]}`}>
+                      {ACTIVITY_ICON[line.level]} {line.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Approval queue */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-bold text-gray-900">Approval Queue</h2>
+                <Link href="/dashboard/approvals" className="text-sm text-brand-blue hover:text-brand-blue-dark font-medium transition-colors">
+                  View All →
+                </Link>
+              </div>
+              {summary.approval_queue.length === 0 ? (
+                <p className="text-sm text-gray-400">Nothing needs your approval right now.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500 text-xs uppercase tracking-wide">
+                        <th className="py-1.5 pr-3">Order</th>
+                        <th className="py-1.5 pr-3">SKU</th>
+                        <th className="py-1.5 pr-3">Qty</th>
+                        <th className="py-1.5 pr-3">Total</th>
+                        <th className="py-1.5"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {summary.approval_queue.map((item) => (
+                        <tr key={item.workflow_id}>
+                          <td className="py-2 pr-3 font-mono text-xs">{item.tiktok_order_id ?? item.order_id.slice(0, 8)}</td>
+                          <td className="py-2 pr-3">{item.amazon_sku}</td>
+                          <td className="py-2 pr-3">{item.quantity}</td>
+                          <td className="py-2 pr-3">{item.total != null ? `$${item.total.toFixed(2)}` : "—"}</td>
+                          <td className="py-2 text-right">
+                            <Link href="/dashboard/approvals" className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                              Review →
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 const statusStyles: Record<OrderStatus, string> = {
   pending: "bg-yellow-50 text-yellow-700 border border-yellow-200",
@@ -96,6 +288,8 @@ export default function DashboardPage() {
 
   return (
     <DashboardShell activeItem="Overview">
+      <ControlCenter />
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-6" role="alert">
           {error}

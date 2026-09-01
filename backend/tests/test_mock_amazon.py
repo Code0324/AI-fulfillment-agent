@@ -34,7 +34,7 @@ from app.services.fulfillment.workflow import fulfillment_engine
 from app.services.inventory_service import inventory_service
 from app.services.mock_amazon import mock_amazon_service
 
-from tests.conftest import create_test_organization, auth_headers
+from tests.conftest import create_test_organization, auth_headers, auth_org
 from app.services.order_service import order_service
 from app.services.providers.mock.order_provider import (
     MOCK_AMAZON_ORDERS,
@@ -732,10 +732,17 @@ class TestRegressionExistingFunctionality:
             )
             assert resp.status_code == 201
 
-    def test_fulfillment_endpoints_still_work(self):
-        from fastapi.testclient import TestClient
-        from app.main import app
+    def test_fulfillment_endpoints_still_work(self, client):
+        """Uses the shared session `client` fixture and a real authenticated
+        organization — fulfillment.py now enforces get_current_organization
+        + require_permission (see api/v1/fulfillment.py's module docstring),
+        and (via get_db) touches the application's single pooled
+        AsyncEngine, so this can no longer use a fresh unauthenticated
+        local TestClient (see test_fulfillment_safety.py's TestRegression
+        .test_orders_still_work for the cross-event-loop pooled-connection
+        hazard that would otherwise risk)."""
         _setup_inventory()
+        headers, org_id = auth_org(client)
         order = order_service.create(
             OrderCreate(
                 customer_name="Test",
@@ -744,8 +751,7 @@ class TestRegressionExistingFunctionality:
                 sku="MOCK-SKU-001",
                 quantity=1,
             ),
-            create_test_organization(),
+            org_id,
         )
-        with TestClient(app) as c:
-            resp = c.post(f"/api/v1/fulfillment/{order.id}/start")
-            assert resp.status_code == 201
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
+        assert resp.status_code == 201

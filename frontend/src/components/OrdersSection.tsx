@@ -4,13 +4,38 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createOrder,
   fetchOrders,
+  fetchTiktokStatus,
   reserveOrderInventory,
+  syncTiktokOrders,
   updateOrderStatus,
   type CreateOrderPayload,
   type Order,
   type OrderStatus,
+  type TikTokConnectionStatus,
+  type TikTokSyncResult,
 } from "@/lib/api";
 import OrderDetail from "@/components/OrderDetail";
+
+// ---------------------------------------------------------------------------
+// Agent status (derived, not a backend field) — a quick read of where an
+// order sits in the automated pipeline without a second network call.
+// ---------------------------------------------------------------------------
+
+function agentStatusFor(order: Order): { label: string; bg: string; text: string } {
+  if (order.source !== "TIKTOK") {
+    return { label: "Manual", bg: "bg-gray-50", text: "text-gray-500" };
+  }
+  if (order.status === "cancelled") {
+    return { label: "Cancelled", bg: "bg-red-50", text: "text-red-700" };
+  }
+  if (order.status === "delivered" || order.status === "shipped") {
+    return { label: "Completed", bg: "bg-green-50", text: "text-green-700" };
+  }
+  if (order.inventory_reserved) {
+    return { label: "Prepared — awaiting approval", bg: "bg-blue-50", text: "text-blue-700" };
+  }
+  return { label: "Processing", bg: "bg-yellow-50", text: "text-yellow-700" };
+}
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -81,6 +106,11 @@ export default function OrdersSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // TikTok connection + sync
+  const [tiktokStatus, setTiktokStatus] = useState<TikTokConnectionStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<TikTokSyncResult | null>(null);
+
   // create form
   const [form, setForm] = useState<CreateOrderPayload>({
     customer_name: "",
@@ -95,6 +125,7 @@ export default function OrdersSection() {
 
   // filter
   const [statusFilter, setStatusFilter] = useState<OrderStatus | undefined>(undefined);
+  const [sourceFilter, setSourceFilter] = useState<Order["source"] | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,18 +155,43 @@ export default function OrdersSection() {
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await fetchOrders(1, 100, statusFilter, debouncedSearch || undefined);
+    const result = await fetchOrders(1, 100, statusFilter, debouncedSearch || undefined, sourceFilter);
     if (result.ok) {
       setOrders(result.data.items);
     } else {
       setError(result.error);
     }
     setLoading(false);
-  }, [statusFilter, debouncedSearch]);
+  }, [statusFilter, debouncedSearch, sourceFilter]);
 
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
+
+  const loadTiktokStatus = useCallback(async () => {
+    const result = await fetchTiktokStatus();
+    if (result.ok) setTiktokStatus(result.data);
+  }, []);
+
+  useEffect(() => {
+    loadTiktokStatus();
+  }, [loadTiktokStatus]);
+
+  async function handleSyncTiktok() {
+    setSyncing(true);
+    setSyncResult(null);
+    const result = await syncTiktokOrders();
+    if (result.ok) {
+      setSyncResult(result.data);
+      if (result.data.created > 0) {
+        loadOrders();
+        loadAllCounts();
+      }
+    } else {
+      setError(result.error);
+    }
+    setSyncing(false);
+  }
 
   // ------------------------------------------------------------------
   // Summary counts (always from unfiltered full set)
@@ -252,6 +308,60 @@ export default function OrdersSection() {
         </div>
       )}
 
+      {/* ---- TikTok Shop Orders ---- */}
+      <div className="bg-white border border-gray-200 rounded-lg p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            TikTok Shop Orders
+          </h2>
+          {tiktokStatus?.configured ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-xs font-semibold text-green-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              Connected ({tiktokStatus.environment})
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-50 border border-yellow-200 text-xs font-semibold text-yellow-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+              TikTok Shop — NOT CONFIGURED
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-gray-500 mb-3">
+          New orders are fetched automatically from TikTok Shop, matched to an Amazon SKU, and
+          prepared for checkout — you only step in for SKU review or final approval.
+        </p>
+        <button
+          onClick={handleSyncTiktok}
+          disabled={syncing || !tiktokStatus?.configured}
+          className="px-4 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+        >
+          {syncing ? "Syncing…" : "Sync TikTok Orders"}
+        </button>
+        {!tiktokStatus?.configured && (
+          <p className="text-xs text-gray-400 mt-2">
+            Connect TikTok Shop (TIKTOK_APP_KEY / APP_SECRET / ACCESS_TOKEN) to enable automatic order ingestion.
+          </p>
+        )}
+        {syncResult && (
+          <div className="mt-3 text-sm bg-gray-50 border border-gray-100 rounded-md px-3 py-2 text-gray-700">
+            {syncResult.notice}
+            {syncResult.created > 0 && (
+              <span className="text-gray-500">
+                {" "}
+                — {syncResult.sheet_synced} synced to Google Sheet, {syncResult.workflow_started} sent to the fulfillment pipeline.
+              </span>
+            )}
+            {syncResult.errors.length > 0 && (
+              <ul className="mt-1 list-disc list-inside text-red-600">
+                {syncResult.errors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* ---- Summary cards ---- */}
       <div>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
@@ -282,13 +392,13 @@ export default function OrdersSection() {
       <div className="bg-white border border-gray-200 rounded-lg p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Create Order
+            Create Manual Order
           </h2>
           <button
             onClick={() => setShowForm(!showForm)}
             className="text-sm text-blue-600 hover:text-blue-800 font-medium"
           >
-            {showForm ? "Cancel" : "+ New Order"}
+            {showForm ? "Cancel" : "+ New Manual Order"}
           </button>
         </div>
 
@@ -396,6 +506,21 @@ export default function OrdersSection() {
                 </option>
               ))}
             </select>
+            <select
+              value={sourceFilter ?? ""}
+              onChange={(e) =>
+                setSourceFilter(
+                  e.target.value ? (e.target.value as Order["source"]) : undefined,
+                )
+              }
+              className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">All Sources</option>
+              <option value="TIKTOK">TikTok Shop</option>
+              <option value="MANUAL">Manual</option>
+              <option value="AMAZON">Amazon</option>
+              <option value="MOCK_AMAZON">Mock Amazon</option>
+            </select>
             <button
               onClick={loadOrders}
               className="text-sm text-blue-600 hover:text-blue-800 font-medium"
@@ -423,30 +548,32 @@ export default function OrdersSection() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3">Product</th>
+                    <th className="px-4 py-3">Order ID</th>
+                    <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">SKU</th>
+                    <th className="px-4 py-3">Product</th>
+                    <th className="px-4 py-3">Variation</th>
                     <th className="px-4 py-3">Qty</th>
-                    <th className="px-4 py-3">Inventory</th>
+                    <th className="px-4 py-3">Customer</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Agent Status</th>
+                    <th className="px-4 py-3">Inventory</th>
                     <th className="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {orders.map((order) => {
                     const meta = ORDER_STATUS_META[order.status];
+                    const agentMeta = agentStatusFor(order);
                     return (
                       <tr key={order.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">
-                            {order.customer_name}
-                          </div>
-                          <div className="text-xs text-gray-400 font-mono mt-0.5">
-                            {order.id.slice(0, 8)}
-                          </div>
+                        <td className="px-4 py-3 text-xs font-mono text-gray-600">
+                          {order.source === "TIKTOK" && order.tiktok_order_id
+                            ? order.tiktok_order_id
+                            : order.id.slice(0, 8)}
                         </td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {order.product_name}
+                        <td className="px-4 py-3 text-gray-500 text-xs">
+                          {formatTime(order.created_at)}
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-xs font-mono text-gray-600">
@@ -454,7 +581,31 @@ export default function OrdersSection() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-700">
+                          {order.product_name}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">
+                          {order.variation || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700">
                           {order.quantity}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-gray-900">
+                            {order.customer_name}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${meta.bg} ${meta.text}`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                            {meta.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${agentMeta.bg} ${agentMeta.text}`}>
+                            {agentMeta.label}
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           {order.inventory_reserved ? (
@@ -472,17 +623,6 @@ export default function OrdersSection() {
                           ) : (
                             <span className="text-xs text-gray-400">—</span>
                           )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${meta.bg} ${meta.text}`}
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                            {meta.label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-500 text-xs">
-                          {formatTime(order.created_at)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button

@@ -1,5 +1,21 @@
+import { tokenStore } from "@/lib/auth";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+/**
+ * Headers for an authenticated JSON request against /api/v1/* — attaches
+ * the Bearer token from localStorage when one is present. Without this,
+ * every /api/v1 call below would 401 against endpoints protected by
+ * get_current_organization (orders, tiktok, sku-mappings, dashboard).
+ */
+function jsonHeaders(): Record<string, string> {
+  const token = tokenStore.get();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Health
@@ -130,7 +146,7 @@ export async function fetchTasks(
   try {
     const res = await fetch(
       `${taskApiBase()}?page=${page}&page_size=${pageSize}`,
-      { cache: "no-store" },
+      { cache: "no-store", headers: jsonHeaders() },
     );
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -148,7 +164,7 @@ export async function createTask(
   try {
     const res = await fetch(taskApiBase(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ title, status: "pending" }),
     });
     const body: unknown = await res.json();
@@ -168,7 +184,7 @@ export async function updateTaskStatus(
   try {
     const res = await fetch(`${taskApiBase()}/${taskId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ status }),
     });
     const body: unknown = await res.json();
@@ -192,15 +208,37 @@ export type OrderStatus =
   | "delivered"
   | "cancelled";
 
+export type OrderSource = "MANUAL" | "AMAZON" | "MOCK_AMAZON" | "TIKTOK";
+
+export interface TikTokChannelMetadata {
+  phone_number?: string;
+  address_line_1?: string;
+  delivery_instructions?: string | null;
+  city?: string;
+  state?: string;
+  zipcode?: string;
+  price?: number;
+  delivery_date?: string | null;
+  order_date?: string;
+  order_status?: string;
+}
+
 export interface Order {
   id: string;
   customer_name: string;
   shipping_address: string;
   product_name: string;
   sku: string;
+  variation?: string | null;
   quantity: number;
   status: OrderStatus;
+  source: OrderSource;
   inventory_reserved: boolean;
+  tiktok_order_id?: string | null;
+  channel_metadata?: TikTokChannelMetadata | null;
+  sheet_synced_at?: string | null;
+  sheet_sync_error?: string | null;
+  sheet_sync_status: "pending" | "synced" | "failed";
   created_at: string;
   updated_at: string;
 }
@@ -222,6 +260,7 @@ export async function fetchOrders(
   pageSize = 50,
   statusFilter?: OrderStatus,
   searchQuery?: string,
+  sourceFilter?: OrderSource,
 ): Promise<{ ok: true; data: OrderListResponse } | { ok: false; error: string }> {
   try {
     const params = new URLSearchParams({
@@ -230,9 +269,10 @@ export async function fetchOrders(
     });
     if (statusFilter) params.set("status", statusFilter);
     if (searchQuery && searchQuery.trim()) params.set("search", searchQuery.trim());
+    if (sourceFilter) params.set("source", sourceFilter);
     const res = await fetch(
       `${orderApiBase()}?${params.toString()}`,
-      { cache: "no-store" },
+      { cache: "no-store", headers: jsonHeaders() },
     );
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -250,6 +290,7 @@ export async function fetchOrder(
   try {
     const res = await fetch(`${orderApiBase()}/${orderId}`, {
       cache: "no-store",
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -276,7 +317,7 @@ export async function createOrder(
   try {
     const res = await fetch(orderApiBase(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ ...payload, status: "pending" }),
     });
     const body: unknown = await res.json();
@@ -295,7 +336,7 @@ export async function reserveOrderInventory(
   try {
     const res = await fetch(`${orderApiBase()}/${orderId}/reserve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -314,7 +355,7 @@ export async function updateOrderStatus(
   try {
     const res = await fetch(`${orderApiBase()}/${orderId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ status }),
     });
     const body: unknown = await res.json();
@@ -373,7 +414,7 @@ export async function fetchInventory(
     if (searchQuery && searchQuery.trim()) params.set("search", searchQuery.trim());
     const res = await fetch(
       `${inventoryApiBase()}?${params.toString()}`,
-      { cache: "no-store" },
+      { cache: "no-store", headers: jsonHeaders() },
     );
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -399,7 +440,7 @@ export async function createInventoryItem(
   try {
     const res = await fetch(inventoryApiBase(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ ...payload, reserved_quantity: payload.reserved_quantity ?? 0, low_stock_threshold: payload.low_stock_threshold ?? 10 }),
     });
     const body: unknown = await res.json();
@@ -419,7 +460,7 @@ export async function updateInventoryItem(
   try {
     const res = await fetch(`${inventoryApiBase()}/${itemId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
     const body: unknown = await res.json();
@@ -477,6 +518,7 @@ export async function createAutomationSession(): Promise<{ ok: true; data: Autom
   try {
     const res = await fetch(`${automationApiBase()}/sessions?environment=sandbox`, {
       method: "POST",
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -495,7 +537,7 @@ export async function fetchAutomationSessions(
   try {
     const res = await fetch(
       `${automationApiBase()}/sessions?page=${page}&page_size=${pageSize}`,
-      { cache: "no-store" },
+      { cache: "no-store", headers: jsonHeaders() },
     );
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -513,6 +555,7 @@ export async function stopAutomationSession(
   try {
     const res = await fetch(`${automationApiBase()}/sessions/${sessionId}/stop`, {
       method: "POST",
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -532,7 +575,7 @@ export async function fillAutomationForm(
   try {
     const res = await fetch(`${automationApiBase()}/sessions/${sessionId}/fill`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ session_id: sessionId, address, shipping_method: shippingMethod }),
     });
     const body: unknown = await res.json();
@@ -595,7 +638,7 @@ export async function parseAddress(
   try {
     const res = await fetch(`${addressApiBase()}/parse`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ raw_address: rawAddress }),
     });
     const body: unknown = await res.json();
@@ -621,7 +664,7 @@ export async function fetchAddressResults(
     if (statusFilter) params.set("status", statusFilter);
     const res = await fetch(
       `${addressApiBase()}?${params.toString()}`,
-      { cache: "no-store" },
+      { cache: "no-store", headers: jsonHeaders() },
     );
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -642,7 +685,7 @@ export async function reviewAddress(
     const payload: Record<string, unknown> = { action, ...corrections };
     const res = await fetch(`${addressApiBase()}/${resultId}/review`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
     const body: unknown = await res.json();
@@ -726,6 +769,12 @@ export interface FulfillmentWorkflow {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+  order_source: string | null;
+  sku_mapping_status: string | null;
+  fulfillment_provider: string | null;
+  provider_mode: string | null;
+  marketplace_provider: string | null;
+  marketplace_integration_configured: boolean;
 }
 
 export interface FulfillmentListResponse {
@@ -747,7 +796,7 @@ export async function startFulfillment(
   try {
     const res = await fetch(`${fulfillmentApiBase()}/${orderId}/start`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ shipping_method: shippingMethod }),
     });
     const body: unknown = await res.json();
@@ -767,7 +816,7 @@ export async function fetchFulfillmentWorkflows(
   try {
     const res = await fetch(
       `${fulfillmentApiBase()}?page=${page}&page_size=${pageSize}`,
-      { cache: "no-store" },
+      { cache: "no-store", headers: jsonHeaders() },
     );
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -785,6 +834,7 @@ export async function fetchFulfillmentWorkflow(
   try {
     const res = await fetch(`${fulfillmentApiBase()}/${workflowId}`, {
       cache: "no-store",
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -802,7 +852,7 @@ export async function approveFulfillment(
   try {
     const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -820,7 +870,7 @@ export async function rejectFulfillment(
   try {
     const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/reject`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -838,7 +888,7 @@ export async function cancelFulfillment(
   try {
     const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/cancel`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -856,7 +906,7 @@ export async function retryFulfillment(
   try {
     const res = await fetch(`${fulfillmentApiBase()}/${workflowId}/retry`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
     });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -892,7 +942,7 @@ function providersApiBase(): string {
 
 export async function fetchProviders(): Promise<{ ok: true; data: ProviderListResponse } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${providersApiBase()}`, { cache: "no-store" });
+    const res = await fetch(`${providersApiBase()}`, { cache: "no-store", headers: jsonHeaders() });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
       return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
@@ -985,7 +1035,7 @@ function amazonApiBase(): string {
 
 export async function fetchAmazonStatus(): Promise<{ ok: true; data: AmazonConnectionStatus } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${amazonApiBase()}/status`, { cache: "no-store" });
+    const res = await fetch(`${amazonApiBase()}/status`, { cache: "no-store", headers: jsonHeaders() });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
       return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
@@ -1003,7 +1053,7 @@ export async function fetchAmazonOrders(
   try {
     const res = await fetch(
       `${amazonApiBase()}/orders?limit=${limit}&offset=${offset}`,
-      { cache: "no-store" },
+      { cache: "no-store", headers: jsonHeaders() },
     );
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
@@ -1021,7 +1071,7 @@ export async function importAmazonOrders(
   try {
     const res = await fetch(`${amazonApiBase()}/orders/import`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(orderIds ?? []),
     });
     const body: unknown = await res.json();
@@ -1036,12 +1086,192 @@ export async function importAmazonOrders(
 
 export async function fetchAmazonInfo(): Promise<{ ok: true; data: AmazonInfo } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${amazonApiBase()}/info`, { cache: "no-store" });
+    const res = await fetch(`${amazonApiBase()}/info`, { cache: "no-store", headers: jsonHeaders() });
     const body: unknown = await res.json();
     if (!res.ok || isApiError(body)) {
       return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
     }
     return { ok: true, data: body as AmazonInfo };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TikTok Shop
+// ---------------------------------------------------------------------------
+
+export interface TikTokConnectionStatus {
+  configured: boolean;
+  environment: string;
+  provider?: string | null;
+  shop_id?: string | null;
+  token_expires_in?: number;
+  orders_retrieved?: number;
+  orders_normalized?: number;
+  notice?: string;
+}
+
+export interface TikTokSyncResult {
+  configured: boolean;
+  notice: string;
+  fetched: number;
+  created: number;
+  skipped_existing: number;
+  sheet_synced: number;
+  sheet_failed: number;
+  workflow_started: number;
+  errors: string[];
+}
+
+function tiktokApiBase(): string {
+  return `${API_BASE_URL}/api/v1/tiktok`;
+}
+
+export async function fetchTiktokStatus(): Promise<{ ok: true; data: TikTokConnectionStatus } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${tiktokApiBase()}/status`, { cache: "no-store", headers: jsonHeaders() });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as TikTokConnectionStatus };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+export async function syncTiktokOrders(): Promise<{ ok: true; data: TikTokSyncResult } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${tiktokApiBase()}/sync`, {
+      method: "POST",
+      headers: jsonHeaders(),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as TikTokSyncResult };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SKU Mappings
+// ---------------------------------------------------------------------------
+
+export interface SkuMappingCreatePayload {
+  tiktok_sku: string;
+  variation?: string | null;
+  amazon_sku: string;
+  asin?: string | null;
+}
+
+export interface SkuMapping {
+  id: string;
+  tiktok_sku: string;
+  variation: string | null;
+  amazon_sku: string | null;
+  asin: string | null;
+  confidence_score: number;
+  status: string;
+  source: string;
+}
+
+function skuMappingsApiBase(): string {
+  return `${API_BASE_URL}/api/v1/sku-mappings`;
+}
+
+export async function createSkuMapping(
+  payload: SkuMappingCreatePayload,
+): Promise<{ ok: true; data: SkuMapping } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(skuMappingsApiBase(), {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as SkuMapping };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard (AI Fulfillment Control Center)
+// ---------------------------------------------------------------------------
+
+export type ConnectionState = "NOT_CONFIGURED" | "CONNECTION_ERROR" | "CONNECTED";
+
+export interface ProviderConnection {
+  status: ConnectionState;
+  configured: boolean;
+  environment?: string;
+  error?: string;
+}
+
+export interface DashboardConnections {
+  tiktok: ProviderConnection;
+  amazon: ProviderConnection;
+  google_sheets: ProviderConnection;
+  database: { status: ConnectionState; healthy: boolean };
+}
+
+export interface DashboardCounts {
+  new: number;
+  processing: number;
+  awaiting_approval: number;
+  completed: number;
+  errors: number;
+}
+
+export interface DashboardActivityLine {
+  level: "info" | "success" | "warning" | "error";
+  message: string;
+}
+
+export interface DashboardApprovalItem {
+  order_id: string;
+  workflow_id: string;
+  tiktok_order_id: string | null;
+  tiktok_sku: string | null;
+  amazon_sku: string;
+  asin: string | null;
+  product_name: string;
+  variation: string | null;
+  quantity: number;
+  price: number | null;
+  total: number | null;
+  customer_name: string;
+  shipping_address: string;
+  current_state: string;
+  integration_mode: "REAL" | "MOCK/SANDBOX";
+}
+
+export interface DashboardSummary {
+  connections: DashboardConnections;
+  counts: DashboardCounts;
+  activity: DashboardActivityLine[];
+  approval_queue: DashboardApprovalItem[];
+}
+
+function dashboardApiBase(): string {
+  return `${API_BASE_URL}/api/v1/dashboard`;
+}
+
+export async function fetchDashboardSummary(): Promise<{ ok: true; data: DashboardSummary } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${dashboardApiBase()}/summary`, { cache: "no-store", headers: jsonHeaders() });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as DashboardSummary };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }

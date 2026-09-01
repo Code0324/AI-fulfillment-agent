@@ -2,6 +2,13 @@
 
 Covers workflow lifecycle, approval, inventory, address validation,
 browser sandbox, audit, and regression.
+
+AUTH NOTE: fulfillment.py now enforces get_current_organization +
+require_permission on every route (see that module's docstring) — every
+call site below authenticates via tests.conftest.auth_org()/auth_headers()
+and passes the resulting Authorization header. _create_order() creates
+the order under the SAME organization the returned headers belong to,
+since ownership is re-verified against the database on every request.
 """
 
 import uuid
@@ -14,7 +21,7 @@ from app.services.fulfillment.workflow import fulfillment_engine
 from app.services.inventory_service import inventory_service
 from app.services.order_service import order_service
 
-from tests.conftest import create_test_organization, auth_headers
+from tests.conftest import auth_headers, auth_org
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +55,13 @@ def _create_inventory(sku="TEST-SKU-001", stock=100):
     )
 
 
-def _create_order(sku="TEST-SKU-001", qty=5, address=None):
-    """Helper: create an order for a fresh, real organization."""
+def _create_order(client, sku="TEST-SKU-001", qty=5, address=None):
+    """Helper: create an order for a fresh, real authenticated organization.
+
+    Returns (order, headers) — headers authenticate a real OWNER member of
+    the SAME organization the order belongs to, required now that
+    fulfillment.py enforces get_current_organization + require_permission.
+    """
     from app.schemas.order import OrderCreate
     if address is None:
         address = (
@@ -59,7 +71,8 @@ def _create_order(sku="TEST-SKU-001", qty=5, address=None):
             "New York NY 10003\n"
             "US"
         )
-    return order_service.create(
+    headers, org_id = auth_org(client)
+    order = order_service.create(
         OrderCreate(
             customer_name="Test Customer",
             shipping_address=address,
@@ -67,8 +80,9 @@ def _create_order(sku="TEST-SKU-001", qty=5, address=None):
             sku=sku,
             quantity=qty,
         ),
-        create_test_organization(),
+        org_id,
     )
+    return order, headers
 
 
 # ===========================================================================
@@ -80,8 +94,8 @@ class TestStartFulfillment:
 
     def test_start_valid_workflow(self, client):
         _create_inventory()
-        order = _create_order()
-        resp = client.post(f"/api/v1/fulfillment/{order.id}/start")
+        order, headers = _create_order(client)
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
         assert resp.status_code == 201
         body = resp.json()
         assert body["order_id"] == str(order.id)
@@ -96,11 +110,11 @@ class TestStartFulfillment:
 
     def test_start_then_approve_completes(self, client):
         _create_inventory()
-        order = _create_order()
-        wf = client.post(f"/api/v1/fulfillment/{order.id}/start").json()
+        order, headers = _create_order(client)
+        wf = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers).json()
         assert wf["status"] == "waiting_approval"
         # Approve
-        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/approve")
+        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/approve", headers=headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "completed"
@@ -109,10 +123,11 @@ class TestStartFulfillment:
 
     def test_start_with_express_shipping(self, client):
         _create_inventory()
-        order = _create_order()
+        order, headers = _create_order(client)
         resp = client.post(
             f"/api/v1/fulfillment/{order.id}/start",
             json={"shipping_method": "express"},
+            headers=headers,
         )
         assert resp.status_code == 201
         body = resp.json()
@@ -120,32 +135,56 @@ class TestStartFulfillment:
 
     def test_start_invalid_order_returns_404(self, client):
         fake_id = str(uuid.uuid4())
-        resp = client.post(f"/api/v1/fulfillment/{fake_id}/start")
+        resp = client.post(f"/api/v1/fulfillment/{fake_id}/start", headers=auth_headers(client))
+        assert resp.status_code == 404
+
+    def test_start_requires_authentication(self, client):
+        """New in this phase: fulfillment.py now enforces authentication —
+        a request with no bearer token must be rejected, not routed
+        through to the (unscoped, in-memory) engine."""
+        _create_inventory()
+        order, _headers = _create_order(client)
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start")
+        assert resp.status_code in (401, 403)
+
+    def test_start_rejects_order_from_another_organization(self, client):
+        """New in this phase: an authenticated user from a DIFFERENT
+        organization must not be able to start fulfillment for an order
+        they don't own — it must 404, not leak existence."""
+        _create_inventory()
+        order, _owner_headers = _create_order(client)
+        other_headers = auth_headers(client)
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=other_headers)
         assert resp.status_code == 404
 
     def test_start_invalid_shipping_method(self, client):
         _create_inventory()
-        order = _create_order()
+        order, headers = _create_order(client)
         resp = client.post(
             f"/api/v1/fulfillment/{order.id}/start",
             json={"shipping_method": "invalid"},
+            headers=headers,
         )
         assert resp.status_code == 422
 
     def test_workflow_has_all_steps(self, client):
         _create_inventory()
-        order = _create_order()
-        resp = client.post(f"/api/v1/fulfillment/{order.id}/start").json()
+        order, headers = _create_order(client)
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers).json()
         step_names = [s["name"] for s in resp["steps"]]
         expected = [
-            "load_order", "validate_address", "check_inventory",
-            "reserve_inventory", "prepare_supplier_order",
-            "open_supplier_sandbox", "fill_product_info",
-            "fill_shipping_address", "select_shipping_method",
-            "verify_order", "request_approval",
-            "submit_supplier_order", "generate_confirmation",
+            "load_order", "validate_order", "resolve_sku_mapping",
+            "validate_address", "check_inventory", "reserve_inventory",
+            "prepare_supplier_order", "select_fulfillment_provider",
+            "prepare_provider_order", "validate_provider_order",
+            "request_approval", "submit_fulfillment_order",
+            "generate_confirmation",
         ]
         assert step_names == expected
+        assert resp["order_source"] == "MANUAL"
+        assert resp["sku_mapping_status"] == "not_required"
+        assert resp["fulfillment_provider"] == "mock_sandbox_supplier"
+        assert resp["provider_mode"] == "mock_sandbox"
 
 
 # ===========================================================================
@@ -157,8 +196,8 @@ class TestAddressValidation:
 
     def test_failed_address_stops_workflow(self, client):
         _create_inventory()
-        order = _create_order(address="X")
-        resp = client.post(f"/api/v1/fulfillment/{order.id}/start")
+        order, headers = _create_order(client, address="X")
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
         assert resp.status_code == 201
         body = resp.json()
         assert body["status"] == "failed"
@@ -173,24 +212,24 @@ class TestInventoryInWorkflow:
     """Inventory checks in workflow."""
 
     def test_missing_inventory_fails(self, client):
-        order = _create_order(sku="NONEXISTENT")
-        resp = client.post(f"/api/v1/fulfillment/{order.id}/start")
+        order, headers = _create_order(client, sku="NONEXISTENT")
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
         assert resp.status_code == 201
         body = resp.json()
         assert body["status"] == "failed"
 
     def test_insufficient_inventory_fails(self, client):
         _create_inventory(stock=2)
-        order = _create_order(qty=10)
-        resp = client.post(f"/api/v1/fulfillment/{order.id}/start")
+        order, headers = _create_order(client, qty=10)
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
         assert resp.status_code == 201
         body = resp.json()
         assert body["status"] == "failed"
 
     def test_inventory_reserved_after_workflow(self, client):
         _create_inventory(stock=100)
-        order = _create_order(qty=5)
-        wf = client.post(f"/api/v1/fulfillment/{order.id}/start").json()
+        order, headers = _create_order(client, qty=5)
+        client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers).json()
         # Inventory is reserved during workflow
         inv = inventory_service.find_by_sku("TEST-SKU-001")
         assert inv.reserved_quantity == 5
@@ -205,8 +244,8 @@ class TestApprovalWorkflow:
 
     def test_workflow_waiting_approval(self, client):
         _create_inventory()
-        order = _create_order()
-        resp = client.post(f"/api/v1/fulfillment/{order.id}/start")
+        order, headers = _create_order(client)
+        resp = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
         assert resp.status_code == 201
         body = resp.json()
         assert body["status"] == "waiting_approval"
@@ -218,9 +257,9 @@ class TestApprovalWorkflow:
 
     def test_approve_completes_workflow(self, client):
         _create_inventory()
-        order = _create_order()
-        wf = client.post(f"/api/v1/fulfillment/{order.id}/start").json()
-        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/approve")
+        order, headers = _create_order(client)
+        wf = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers).json()
+        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/approve", headers=headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "completed"
@@ -228,12 +267,26 @@ class TestApprovalWorkflow:
 
     def test_reject_cancels_workflow(self, client):
         _create_inventory()
-        order = _create_order()
-        wf = client.post(f"/api/v1/fulfillment/{order.id}/start").json()
-        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/reject")
+        order, headers = _create_order(client)
+        wf = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers).json()
+        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/reject", headers=headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "cancelled"
+
+    def test_approve_rejects_another_organizations_workflow(self, client):
+        """Approval security: an authenticated user from a different
+        organization must not be able to approve someone else's workflow."""
+        _create_inventory()
+        order, owner_headers = _create_order(client)
+        wf = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=owner_headers).json()
+        other_headers = auth_headers(client)
+        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/approve", headers=other_headers)
+        assert resp.status_code == 404
+        # Confirm it genuinely did not approve — the real owner still can.
+        resp2 = client.post(f"/api/v1/fulfillment/{wf['id']}/approve", headers=owner_headers)
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "completed"
 
 
 # ===========================================================================
@@ -244,7 +297,7 @@ class TestListWorkflows:
     """List fulfillment workflows."""
 
     def test_empty_list(self, client):
-        resp = client.get("/api/v1/fulfillment")
+        resp = client.get("/api/v1/fulfillment", headers=auth_headers(client))
         assert resp.status_code == 200
         body = resp.json()
         assert body["items"] == []
@@ -252,10 +305,20 @@ class TestListWorkflows:
 
     def test_list_after_start(self, client):
         _create_inventory()
-        order = _create_order()
-        client.post(f"/api/v1/fulfillment/{order.id}/start")
-        resp = client.get("/api/v1/fulfillment").json()
+        order, headers = _create_order(client)
+        client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
+        resp = client.get("/api/v1/fulfillment", headers=headers).json()
         assert resp["total_items"] == 1
+
+    def test_list_is_scoped_to_organization(self, client):
+        """A different organization's workflow list must not include this
+        organization's workflows."""
+        _create_inventory()
+        order, headers = _create_order(client)
+        client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers)
+        other_headers = auth_headers(client)
+        resp = client.get("/api/v1/fulfillment", headers=other_headers).json()
+        assert resp["total_items"] == 0
 
 
 # ===========================================================================
@@ -267,15 +330,15 @@ class TestGetWorkflow:
 
     def test_get_existing_workflow(self, client):
         _create_inventory()
-        order = _create_order()
-        created = client.post(f"/api/v1/fulfillment/{order.id}/start").json()
-        resp = client.get(f"/api/v1/fulfillment/{created['id']}")
+        order, headers = _create_order(client)
+        created = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers).json()
+        resp = client.get(f"/api/v1/fulfillment/{created['id']}", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["id"] == created["id"]
 
     def test_get_missing_workflow_returns_404(self, client):
         fake_id = str(uuid.uuid4())
-        resp = client.get(f"/api/v1/fulfillment/{fake_id}")
+        resp = client.get(f"/api/v1/fulfillment/{fake_id}", headers=auth_headers(client))
         assert resp.status_code == 404
 
 
@@ -288,20 +351,20 @@ class TestApproveRejectEdgeCases:
 
     def test_approve_missing_workflow_returns_404(self, client):
         fake_id = str(uuid.uuid4())
-        resp = client.post(f"/api/v1/fulfillment/{fake_id}/approve")
+        resp = client.post(f"/api/v1/fulfillment/{fake_id}/approve", headers=auth_headers(client))
         assert resp.status_code == 404
 
     def test_reject_missing_workflow_returns_404(self, client):
         fake_id = str(uuid.uuid4())
-        resp = client.post(f"/api/v1/fulfillment/{fake_id}/reject")
+        resp = client.post(f"/api/v1/fulfillment/{fake_id}/reject", headers=auth_headers(client))
         assert resp.status_code == 404
 
     def test_double_approve_fails(self, client):
         _create_inventory()
-        order = _create_order()
-        wf = client.post(f"/api/v1/fulfillment/{order.id}/start").json()
-        client.post(f"/api/v1/fulfillment/{wf['id']}/approve")
-        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/approve")
+        order, headers = _create_order(client)
+        wf = client.post(f"/api/v1/fulfillment/{order.id}/start", headers=headers).json()
+        client.post(f"/api/v1/fulfillment/{wf['id']}/approve", headers=headers)
+        resp = client.post(f"/api/v1/fulfillment/{wf['id']}/approve", headers=headers)
         assert resp.status_code == 422
 
 

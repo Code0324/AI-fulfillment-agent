@@ -305,12 +305,14 @@ class TestDataLeakagePrevention:
         for order in amazon_orders:
             assert "source" in order  # Provider-specific
 
-    def test_internal_order_has_no_source_field(self):
-        """Internal Order model does not have a source field."""
+    def test_internal_order_source_is_a_plain_channel_label_not_raw_provider_data(self):
+        """The internal Order model's `source` is a deliberate, minimal
+        channel label (MANUAL/AMAZON/MOCK_AMAZON/TIKTOK) driving the
+        fulfillment workflow's provider-selection step — not a leak of a
+        provider's raw response shape. A manually-created order defaults
+        to "MANUAL", never a provider-specific value."""
         order = _create_order()
-        # Order model fields: id, customer_name, shipping_address, product_name,
-        # sku, quantity, status, inventory_reserved, created_at, updated_at
-        assert not hasattr(order, "source")
+        assert order.source == "MANUAL"
 
     def test_fulfillment_engine_uses_internal_order(self):
         """Fulfillment engine works with internal Order, not provider data."""

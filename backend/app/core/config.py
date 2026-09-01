@@ -95,5 +95,80 @@ class Settings:
     def is_development(self) -> bool:
         return self.APP_ENV == "development"
 
+    # -------------------------------------------------------------------
+    # TikTok Shop Open API Configuration
+    #
+    # TikTok's real OAuth/signing contract and exact endpoint parameter
+    # names are partially unverified — see docs/tiktok-integration.md and
+    # the plan this was implemented from for exactly which parts are
+    # corroborated against TikTok's own docs vs. blocked pending an
+    # approved developer app. This settings block only stores credentials;
+    # it does not assert the integration is fully verified.
+    # -------------------------------------------------------------------
+    TIKTOK_APP_KEY: str = os.getenv("TIKTOK_APP_KEY", "")
+    TIKTOK_APP_SECRET: str = os.getenv("TIKTOK_APP_SECRET", "")
+    TIKTOK_ACCESS_TOKEN: str = os.getenv("TIKTOK_ACCESS_TOKEN", "")
+    TIKTOK_REFRESH_TOKEN: str = os.getenv("TIKTOK_REFRESH_TOKEN", "")
+    TIKTOK_SHOP_ID: str = os.getenv("TIKTOK_SHOP_ID", "")
+    TIKTOK_ENVIRONMENT: str = os.getenv("TIKTOK_ENVIRONMENT", "sandbox")
+
+    # Suggestion floor for the SKU/variation fuzzy matcher (services/sku_mapping).
+    # This is NOT an auto-accept threshold — a fuzzy match is never returned
+    # as "matched" regardless of score; below this floor a candidate isn't
+    # even surfaced as a suggestion. See services/sku_mapping/engine.py.
+    SKU_MAPPING_CONFIDENCE_THRESHOLD: float = float(
+        os.getenv("SKU_MAPPING_CONFIDENCE_THRESHOLD", "0.90")
+    )
+
+    @property
+    def is_tiktok_configured(self) -> bool:
+        """Check if TikTok Shop credentials are configured."""
+        return bool(
+            self.TIKTOK_APP_KEY
+            and self.TIKTOK_APP_SECRET
+            and self.TIKTOK_ACCESS_TOKEN
+        )
+
+    @property
+    def tiktok_environment(self) -> str:
+        """TikTok Shop environment with validation."""
+        env = self.TIKTOK_ENVIRONMENT.lower().strip()
+        if env not in ("sandbox", "production"):
+            logger.warning(
+                "Invalid TIKTOK_ENVIRONMENT '%s' — defaulting to sandbox",
+                self.TIKTOK_ENVIRONMENT,
+            )
+            return "sandbox"
+        if env == "production" and not self.is_tiktok_configured:
+            logger.warning(
+                "TIKTOK_ENVIRONMENT=production but credentials not configured — "
+                "falling back to sandbox"
+            )
+            return "sandbox"
+        return env
+
+    @property
+    def is_tiktok_production(self) -> bool:
+        """Check if TikTok Shop production mode is active."""
+        return self.tiktok_environment == "production"
+
+    # -------------------------------------------------------------------
+    # Google Sheets Configuration
+    #
+    # Writes TikTok order rows to a real Google Sheet via a service
+    # account. GOOGLE_SHEETS_CREDENTIALS_JSON holds the service account
+    # key as a raw JSON string (not a file path) so no credentials file
+    # needs to exist on disk — never logged, never exposed to the
+    # frontend. See services/google_sheets/client.py.
+    # -------------------------------------------------------------------
+    GOOGLE_SHEETS_SPREADSHEET_ID: str = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
+    GOOGLE_SHEETS_CREDENTIALS_JSON: str = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+    GOOGLE_SHEETS_WORKSHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME", "Sheet1")
+
+    @property
+    def is_google_sheets_configured(self) -> bool:
+        """Check if Google Sheets credentials are configured."""
+        return bool(self.GOOGLE_SHEETS_SPREADSHEET_ID and self.GOOGLE_SHEETS_CREDENTIALS_JSON)
+
 
 settings = Settings()

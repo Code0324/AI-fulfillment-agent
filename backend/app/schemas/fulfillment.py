@@ -148,6 +148,31 @@ class FulfillmentWorkflow(BaseModel):
     confirmation: FulfillmentConfirmation | None = Field(
         None, description="Supplier confirmation"
     )
+    order_source: str | None = Field(
+        None, description="Order source/channel: MANUAL, AMAZON, MOCK_AMAZON, or TIKTOK"
+    )
+    sku_mapping_status: str | None = Field(
+        None,
+        description=(
+            "SKU mapping resolution status: not_required (non-TikTok source), "
+            "matched, needs_review, not_found, or conflict"
+        ),
+    )
+    fulfillment_provider: str | None = Field(
+        None, description="Fulfillment execution channel — always the sandbox 3PL simulator today"
+    )
+    provider_mode: str | None = Field(
+        None,
+        description="REAL vs MOCK/SANDBOX for the fulfillment execution channel — always mock_sandbox today, since no real supplier/3PL integration exists",
+    )
+    marketplace_provider: str | None = Field(
+        None,
+        description="Marketplace-side provider that could receive a fulfillment update (tiktok_order_provider, amazon_order_provider), if any",
+    )
+    marketplace_integration_configured: bool = Field(
+        default=False,
+        description="Whether the marketplace-side provider above has real, configured credentials",
+    )
     approval_request_id: UUID | None = Field(
         None, description="Pending approval request ID"
     )

@@ -38,30 +38,40 @@ from app.schemas.fulfillment import (
     SupplierOrderPayload,
     is_valid_transition,
 )
+from app.schemas.sku_mapping import MappingStatus
 from app.services.address.service import address_processing_service
 from app.services.automation.engine import automation_engine
 from app.services.inventory_service import inventory_service
 from app.services.order_service import order_service
+from app.services.providers.registry import provider_registry
+from app.services.sku_mapping.engine import sku_mapping_engine
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Workflow step definitions
+#
+# Source/channel-aware fulfillment workflow: order source is identified up
+# front (step 1), the source SKU is resolved to an internal SKU before
+# anything else depends on it (step 3, gated on human review when
+# unresolved), and the fulfillment provider/channel is explicitly selected
+# and labeled REAL vs MOCK/SANDBOX (steps 8-9) rather than being implicit in
+# a single generic "supplier sandbox" step. See docs/tiktok-integration.md.
 # ---------------------------------------------------------------------------
 
 WORKFLOW_STEPS = [
-    {"name": "load_order", "description": "Load and validate order"},
-    {"name": "validate_address", "description": "Parse and validate shipping address"},
+    {"name": "load_order", "description": "Load order and identify source"},
+    {"name": "validate_order", "description": "Validate order and customer data"},
+    {"name": "resolve_sku_mapping", "description": "Resolve SKU mapping"},
+    {"name": "validate_address", "description": "Validate shipping address"},
     {"name": "check_inventory", "description": "Check inventory availability"},
     {"name": "reserve_inventory", "description": "Reserve inventory for order"},
     {"name": "prepare_supplier_order", "description": "Prepare supplier order payload"},
-    {"name": "open_supplier_sandbox", "description": "Open supplier sandbox page"},
-    {"name": "fill_product_info", "description": "Fill product information"},
-    {"name": "fill_shipping_address", "description": "Fill shipping address"},
-    {"name": "select_shipping_method", "description": "Select shipping method"},
-    {"name": "verify_order", "description": "Verify order before submission"},
+    {"name": "select_fulfillment_provider", "description": "Select fulfillment provider"},
+    {"name": "prepare_provider_order", "description": "Prepare provider-specific order details"},
+    {"name": "validate_provider_order", "description": "Validate provider order before submission"},
     {"name": "request_approval", "description": "Request human approval for submission"},
-    {"name": "submit_supplier_order", "description": "Submit order to mock supplier"},
+    {"name": "submit_fulfillment_order", "description": "Submit fulfillment order"},
     {"name": "generate_confirmation", "description": "Generate fulfillment confirmation"},
 ]
 
@@ -307,6 +317,12 @@ class FulfillmentWorkflowEngine:
             workflow.supplier_payload = None
             workflow.confirmation = None
             workflow.current_step = 0
+            workflow.order_source = None
+            workflow.sku_mapping_status = None
+            workflow.fulfillment_provider = None
+            workflow.provider_mode = None
+            workflow.marketplace_provider = None
+            workflow.marketplace_integration_configured = False
 
             # Reset ALL steps — retry starts fresh
             for step in workflow.steps:
@@ -347,14 +363,37 @@ class FulfillmentWorkflowEngine:
         order = order_service.get(workflow.order_id)
 
         try:
-            # Step 0: Load Order (always re-run on retry)
+            # Step 0: Load Order — identify source/channel (always re-run on retry)
             if workflow.steps[0].status != FulfillmentStepStatus.COMPLETED:
-                self._run_step(workflow, 0, lambda: self._step_load_order(order))
+                load_result = self._run_step(workflow, 0, lambda: self._step_load_order(order))
+            else:
+                load_result = _parse_step_result(workflow.steps[0].result)
+            workflow.order_source = load_result.get("source")
 
-            # Step 1: Validate Address
+            # Step 1: Validate Order
             if workflow.steps[1].status != FulfillmentStepStatus.COMPLETED:
+                self._run_step(workflow, 1, lambda: self._step_validate_order(order))
+
+            # Step 2: Resolve SKU Mapping — stop for human review if unresolved
+            if workflow.steps[2].status != FulfillmentStepStatus.COMPLETED:
+                mapping_result = self._run_step(
+                    workflow, 2, lambda: self._step_resolve_sku_mapping(order)
+                )
+                workflow.sku_mapping_status = mapping_result.get("status")
+                if mapping_result and mapping_result.get("needs_review"):
+                    self._fail_workflow(
+                        workflow,
+                        f"SKU mapping needs review: {mapping_result.get('reason', 'low confidence match')}",
+                    )
+                    return workflow
+            else:
+                mapping_result = _parse_step_result(workflow.steps[2].result)
+                workflow.sku_mapping_status = mapping_result.get("status")
+
+            # Step 3: Validate Shipping Address
+            if workflow.steps[3].status != FulfillmentStepStatus.COMPLETED:
                 address_result = self._run_step(
-                    workflow, 1, lambda: self._step_validate_address(order)
+                    workflow, 3, lambda: self._step_validate_address(order)
                 )
                 if address_result and address_result.get("status") in (
                     AddressProcessingStatus.FAILED.value,
@@ -366,24 +405,22 @@ class FulfillmentWorkflowEngine:
                     )
                     return workflow
             else:
-                address_result = _parse_step_result(workflow.steps[1].result)
+                address_result = _parse_step_result(workflow.steps[3].result)
 
-            # Step 2: Check Inventory
-            if workflow.steps[2].status != FulfillmentStepStatus.COMPLETED:
-                self._run_step(
-                    workflow, 2, lambda: self._step_check_inventory(order)
-                )
-
-            # Step 3: Reserve Inventory (idempotent — skips if already reserved)
-            if workflow.steps[3].status != FulfillmentStepStatus.COMPLETED:
-                self._run_step(
-                    workflow, 3, lambda: self._step_reserve_inventory(order)
-                )
-
-            # Step 4: Prepare Supplier Order
+            # Step 4: Check Inventory (SKU is already resolved by Step 2)
             if workflow.steps[4].status != FulfillmentStepStatus.COMPLETED:
+                self._run_step(workflow, 4, lambda: self._step_check_inventory(order))
+
+            # Step 5: Reserve Inventory (idempotent — skips if already reserved)
+            if workflow.steps[5].status != FulfillmentStepStatus.COMPLETED:
+                self._run_step(
+                    workflow, 5, lambda: self._step_reserve_inventory(order)
+                )
+
+            # Step 6: Prepare Supplier Order
+            if workflow.steps[6].status != FulfillmentStepStatus.COMPLETED:
                 supplier_payload = self._run_step(
-                    workflow, 4, lambda: self._step_prepare_supplier_order(
+                    workflow, 6, lambda: self._step_prepare_supplier_order(
                         order, address_result, shipping_method
                     )
                 )
@@ -391,41 +428,37 @@ class FulfillmentWorkflowEngine:
             else:
                 supplier_payload = workflow.supplier_payload
 
-            # Step 5: Open Supplier Sandbox
-            if workflow.steps[5].status != FulfillmentStepStatus.COMPLETED:
-                session = self._run_step(
-                    workflow, 5, lambda: self._step_open_sandbox()
+            # Step 7: Select Fulfillment Provider — REAL vs MOCK/SANDBOX, never fabricated
+            if workflow.steps[7].status != FulfillmentStepStatus.COMPLETED:
+                provider_result = self._run_step(
+                    workflow, 7, lambda: self._step_select_fulfillment_provider(order)
                 )
             else:
-                session = _parse_step_result(workflow.steps[5].result)
+                provider_result = _parse_step_result(workflow.steps[7].result)
+            workflow.fulfillment_provider = provider_result.get("fulfillment_provider")
+            workflow.provider_mode = provider_result.get("provider_mode")
+            workflow.marketplace_provider = provider_result.get("marketplace_provider")
+            workflow.marketplace_integration_configured = bool(
+                provider_result.get("marketplace_integration_configured")
+            )
 
-            # Step 6: Fill Product Info
-            if workflow.steps[6].status != FulfillmentStepStatus.COMPLETED:
-                self._run_step(
-                    workflow, 6, lambda: self._step_fill_product(session, supplier_payload)
-                )
-
-            # Step 7: Fill Shipping Address
-            if workflow.steps[7].status != FulfillmentStepStatus.COMPLETED:
-                self._run_step(
-                    workflow, 7, lambda: self._step_fill_address(session, address_result)
-                )
-
-            # Step 8: Select Shipping Method
+            # Step 8: Prepare Provider Order (opens sandbox, fills product/address/shipping)
             if workflow.steps[8].status != FulfillmentStepStatus.COMPLETED:
-                self._run_step(
-                    workflow, 8, lambda: self._step_select_shipping(
-                        session, shipping_method
+                session = self._run_step(
+                    workflow, 8, lambda: self._step_prepare_provider_order(
+                        order, address_result, supplier_payload, shipping_method
                     )
                 )
+            else:
+                session = _parse_step_result(workflow.steps[8].result)
 
-            # Step 9: Verify Order
+            # Step 9: Validate Provider Order
             if workflow.steps[9].status != FulfillmentStepStatus.COMPLETED:
                 self._run_step(
                     workflow, 9, lambda: self._step_verify_order(supplier_payload)
                 )
 
-            # Step 10: Request Approval (HIGH-RISK)
+            # Step 10: Human Approval Gate (HIGH-RISK)
             if workflow.steps[10].status != FulfillmentStepStatus.COMPLETED:
                 workflow = self._step_request_approval(workflow, session)
                 if workflow.status == FulfillmentStatus.WAITING_APPROVAL:
@@ -441,7 +474,7 @@ class FulfillmentWorkflowEngine:
         self._transition(workflow, FulfillmentStatus.RUNNING)
 
         try:
-            # Step 11: Submit Supplier Order
+            # Step 11: Submit Fulfillment Order
             if workflow.steps[11].status != FulfillmentStepStatus.COMPLETED:
                 # Submission safety: check for duplicate
                 if workflow.confirmation is not None:
@@ -655,13 +688,93 @@ class FulfillmentWorkflowEngine:
     # ------------------------------------------------------------------
 
     def _step_load_order(self, order) -> dict:
-        """Step: Load and validate order."""
+        """Step: Load order and identify its source/channel."""
         return {
             "order_id": str(order.id),
             "customer": order.customer_name,
             "product": order.product_name,
             "sku": order.sku,
             "quantity": order.quantity,
+            "source": order.source,
+        }
+
+    def _step_validate_order(self, order) -> dict:
+        """Step: Validate required order/customer/product/shipping data.
+
+        Order-creation already enforces non-empty customer_name/
+        product_name/shipping_address and quantity>=1 at the Pydantic
+        schema level (see schemas/order.py), so this step's practical
+        purpose is catching what that schema does NOT require: a missing
+        SKU. Kept as an explicit, named step (rather than silently
+        discovered later during payload verification) so a malformed
+        order is rejected safely and clearly, before any SKU-mapping or
+        inventory work is attempted against it.
+        """
+        issues = []
+        if not order.customer_name:
+            issues.append("Missing customer name")
+        if not order.product_name:
+            issues.append("Missing product name")
+        if not order.shipping_address:
+            issues.append("Missing shipping address")
+        if order.quantity < 1:
+            issues.append("Invalid quantity")
+        if not order.sku:
+            issues.append("Missing SKU")
+
+        if issues:
+            raise ValidationError(f"Order validation failed: {', '.join(issues)}")
+
+        return {"valid": True}
+
+    def _step_resolve_sku_mapping(self, order) -> dict:
+        """Step: Resolve the source/marketplace SKU to the internal SKU.
+
+        For TikTok-sourced orders, order.sku holds the TikTok SKU on
+        entry. It must resolve to a real Amazon SKU before inventory can
+        mean anything — see services/sku_mapping/engine.py. A fuzzy
+        suggestion is never trusted here: only an explicitly confirmed
+        mapping (status=MATCHED) lets this step proceed. Anything else
+        (needs_review/not_found/conflict) stops the workflow via the
+        `needs_review` flag, handled the same way address validation's
+        NEEDS_REVIEW is handled in _execute_workflow_from_step.
+
+        Every other source already carries its internal SKU as order.sku
+        — this is recorded as status="not_required" rather than silently
+        skipped, so the frontend can still show a definite mapping state.
+
+        Retry safety: once this step succeeds it overwrites order.sku
+        in-place with the resolved Amazon SKU (below), so a later retry
+        (which resets and re-runs every step — see retry_workflow) must
+        not re-resolve *that* value as if it were still the TikTok SKU.
+        channel_metadata["tiktok_sku"], set at ingestion time, is the
+        original value to resolve from; order.sku is used only as a
+        fallback for orders created before that field existed.
+        """
+        if order.source != "TIKTOK":
+            return {"resolved": True, "status": "not_required", "sku": order.sku}
+
+        tiktok_sku = (order.channel_metadata or {}).get("tiktok_sku") or order.sku
+        mapping = sku_mapping_engine.map_sku(tiktok_sku, order.variation, order.organization_id)
+        if mapping.status != MappingStatus.MATCHED:
+            return {
+                "resolved": False,
+                "needs_review": True,
+                "status": mapping.status.value,
+                "reason": mapping.reason or f"SKU mapping status: {mapping.status.value}",
+                "confidence": mapping.confidence_score,
+            }
+        # Persist the resolved Amazon SKU — _step_reserve_inventory
+        # re-fetches the order fresh from the DB, so this must be
+        # written through, not just held on the in-memory `order`.
+        order_service.update_sku(order.id, mapping.amazon_sku, order.organization_id)
+        order.sku = mapping.amazon_sku
+        return {
+            "resolved": True,
+            "status": mapping.status.value,
+            "amazon_sku": mapping.amazon_sku,
+            "asin": mapping.asin,
+            "confidence": mapping.confidence_score,
         }
 
     def _step_validate_address(self, order) -> dict:
@@ -682,7 +795,12 @@ class FulfillmentWorkflowEngine:
         }
 
     def _step_check_inventory(self, order) -> dict:
-        """Step: Check inventory availability."""
+        """Step: Check inventory availability for the already-resolved SKU.
+
+        SKU resolution happens in Step 2 (_step_resolve_sku_mapping) —
+        by the time this step runs, order.sku is always the internal SKU,
+        never a raw marketplace SKU that still needs mapping.
+        """
         if not order.sku:
             return {"available": False, "reason": "No SKU on order"}
         item = inventory_service.find_by_sku(order.sku)
@@ -692,7 +810,7 @@ class FulfillmentWorkflowEngine:
             "available": item.available_quantity >= order.quantity,
             "sku": order.sku,
             "requested": order.quantity,
-            "available": item.available_quantity,
+            "available_quantity": item.available_quantity,
         }
 
     def _step_reserve_inventory(self, order) -> dict:
@@ -739,13 +857,71 @@ class FulfillmentWorkflowEngine:
             shipping_method=shipping_method,
         )
 
-    def _step_open_sandbox(self) -> dict:
-        """Step: Open supplier sandbox."""
+    def _step_select_fulfillment_provider(self, order) -> dict:
+        """Step: Select the fulfillment provider/channel and record whether
+        execution is REAL or MOCK/SANDBOX.
+
+        There is no real supplier/3PL integration in this codebase (see
+        docs/amazon-integration-boundary.md, docs/tiktok-integration.md) —
+        actual order placement always goes through the sandbox 3PL
+        simulator (services/automation/engine.py), regardless of order
+        source. What *does* differ by source is whether a real marketplace
+        fulfillment-update could be pushed back once shipped: TikTok's
+        provider implements that (capabilities.supports_fulfillment_update);
+        Amazon's is read-only and never will here. This step only reports
+        provider_registry's actual, current configuration — it never
+        marks anything REAL that isn't genuinely configured and
+        authorized.
+        """
+        source = (order.source or "MANUAL").upper()
+
+        marketplace_provider = None
+        if source == "TIKTOK":
+            marketplace_provider = provider_registry.get_tiktok_provider()
+        elif source in ("AMAZON", "MOCK_AMAZON"):
+            marketplace_provider = provider_registry.get_amazon_provider()
+
+        marketplace_configured = bool(
+            marketplace_provider is not None
+            and getattr(marketplace_provider, "is_configured", False)
+        )
+
+        return {
+            "order_source": source,
+            "fulfillment_provider": "mock_sandbox_supplier",
+            "provider_mode": "mock_sandbox",
+            "marketplace_provider": marketplace_provider.provider_name if marketplace_provider else None,
+            "marketplace_integration_configured": marketplace_configured,
+        }
+
+    def _step_prepare_provider_order(
+        self,
+        order,
+        address_result: dict,
+        payload: SupplierOrderPayload,
+        shipping_method: str,
+    ) -> dict:
+        """Step: Prepare the provider-specific order — opens the sandbox
+        3PL session and populates product, address, and shipping method.
+
+        Internally composed of several sub-operations (open/fill/fill/
+        select below), but exposed as a single workflow step since all of
+        it targets the same sandbox session and none of it is individually
+        meaningful to approve or retry.
+        """
+        session = self._open_sandbox_session()
+        self._fill_product_fields(session, payload)
+        self._fill_address_fields(session, address_result)
+        self._select_shipping_method(session, shipping_method)
+        return session
+
+    def _open_sandbox_session(self) -> dict:
+        """Sub-step: Open supplier sandbox."""
         session = automation_engine.create_session(AutomationEnvironment.SANDBOX)
         return {"session_id": str(session.id)}
 
-    def _step_fill_product(self, session_info: dict, payload: SupplierOrderPayload) -> dict:
-        """Step: Fill product information."""
+    def _fill_product_fields(self, session_info: dict, payload: SupplierOrderPayload) -> dict:
+        """Sub-step: Fill product information."""
         session_id = UUID(session_info["session_id"])
         browser = automation_engine._browser_sessions.get(session_id)
         if browser is None:
@@ -763,8 +939,8 @@ class FulfillmentWorkflowEngine:
 
         return {"filled_fields": filled}
 
-    def _step_fill_address(self, session_info: dict, address_result: dict) -> dict:
-        """Step: Fill shipping address in supplier form."""
+    def _fill_address_fields(self, session_info: dict, address_result: dict) -> dict:
+        """Sub-step: Fill shipping address in supplier form."""
         session_id = UUID(session_info["session_id"])
         browser = automation_engine._browser_sessions.get(session_id)
         if browser is None:
@@ -791,8 +967,8 @@ class FulfillmentWorkflowEngine:
 
         return {"filled_fields": filled}
 
-    def _step_select_shipping(self, session_info: dict, method: str) -> dict:
-        """Step: Select shipping method."""
+    def _select_shipping_method(self, session_info: dict, method: str) -> dict:
+        """Sub-step: Select shipping method."""
         session_id = UUID(session_info["session_id"])
         browser = automation_engine._browser_sessions.get(session_id)
         if browser is None:

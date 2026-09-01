@@ -60,6 +60,7 @@ class ProviderCapabilities:
     supports_supplier_verify: bool = False
     supports_supplier_submit: bool = False
     supports_tracking_read: bool = False
+    supports_fulfillment_update: bool = False
 
 
 # ---------------------------------------------------------------------------

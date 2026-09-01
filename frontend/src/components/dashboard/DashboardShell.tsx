@@ -18,12 +18,14 @@ import {
   Menu,
   X,
   LogOut,
+  CheckSquare,
 } from "lucide-react";
 import { fetchAmazonStatus, type AmazonConnectionStatus } from "@/lib/api";
 
 const sidebarItems = [
   { icon: LayoutDashboard, label: "Overview", href: "/dashboard" },
   { icon: ShoppingCart, label: "Orders", href: "/dashboard/orders" },
+  { icon: CheckSquare, label: "Approvals", href: "/dashboard/approvals" },
   { icon: Warehouse, label: "Inventory", href: "/dashboard/inventory" },
   { icon: Truck, label: "Fulfillment", href: "/dashboard/fulfillment" },
   { icon: FlaskConical, label: "Automation", href: "/dashboard/automation" },

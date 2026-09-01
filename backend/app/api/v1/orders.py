@@ -3,9 +3,10 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status as http_status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ValidationError
+from app.core.errors import ConflictError, ValidationError
 from app.database import get_db
 from app.dependencies import get_current_organization
 from app.models import Organization
@@ -26,7 +27,20 @@ async def create_order(
     The organization is always derived server-side from the authenticated
     user's JWT — never from client input.
     """
-    return await order_service.create_async(db, payload, organization.id)
+    try:
+        return await order_service.create_async(db, payload, organization.id)
+    except IntegrityError as e:
+        # The real idempotency guarantee for TikTok orders is the DB-level
+        # UniqueConstraint on (organization_id, tiktok_order_id) — see
+        # models.py. tiktok_ingestion.py already handles this gracefully
+        # for the automated sync path (reports skipped_existing); this is
+        # for anyone hitting this endpoint directly with a duplicate
+        # tiktok_order_id, which should get a clear 409, not a raw 500.
+        if payload.tiktok_order_id:
+            raise ConflictError(
+                f"An order with tiktok_order_id '{payload.tiktok_order_id}' already exists for this organization"
+            ) from e
+        raise
 
 
 @router.get("", response_model=OrderListResponse)
@@ -35,12 +49,13 @@ async def list_orders(
     page_size: int = Query(10, ge=1, le=100, description="Items per page (max 100)"),
     status: OrderStatus | None = Query(None, description="Filter by order status"),
     search: str | None = Query(None, description="Search by customer, product, or order ID"),
+    source: str | None = Query(None, description="Filter by order source: MANUAL, AMAZON, MOCK_AMAZON, or TIKTOK"),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_db),
 ) -> OrderListResponse:
     """List orders for the authenticated organization only."""
     return await order_service.list_orders_async(
-        db, organization.id, page=page, page_size=page_size, status=status, search=search
+        db, organization.id, page=page, page_size=page_size, status=status, search=search, source=source
     )
 
 

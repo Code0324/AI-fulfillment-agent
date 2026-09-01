@@ -200,13 +200,20 @@ def bridge_session() -> AsyncSession:
 def _row_to_schema(row: FulfillmentOrder) -> Order:
     return Order(
         id=row.id,
+        organization_id=row.organization_id,
         customer_name=row.customer_name,
         shipping_address=row.shipping_address,
         product_name=row.product_name,
         sku=row.sku,
+        variation=row.variation,
         quantity=row.quantity,
         status=OrderStatus(row.status),
+        source=row.source,
         inventory_reserved=row.inventory_reserved,
+        tiktok_order_id=row.tiktok_order_id,
+        channel_metadata=row.channel_metadata,
+        sheet_synced_at=row.sheet_synced_at,
+        sheet_sync_error=row.sheet_sync_error,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -256,9 +263,13 @@ async def create_async(
         shipping_address=payload.shipping_address,
         product_name=payload.product_name,
         sku=payload.sku,
+        variation=payload.variation,
         quantity=payload.quantity,
         status=payload.status.value,
+        source=payload.source,
         inventory_reserved=inventory_reserved,
+        tiktok_order_id=payload.tiktok_order_id,
+        channel_metadata=payload.channel_metadata,
     )
     db.add(row)
     try:
@@ -287,6 +298,7 @@ async def list_orders_async(
     page_size: int = 10,
     status: OrderStatus | None = None,
     search: str | None = None,
+    source: str | None = None,
 ) -> OrderListResponse:
     """List orders for a real, authenticated organization. organization_id
     is mandatory -- listing is always tenant-scoped."""
@@ -295,6 +307,8 @@ async def list_orders_async(
     )
     if status is not None:
         stmt = stmt.where(FulfillmentOrder.status == status.value)
+    if source is not None:
+        stmt = stmt.where(FulfillmentOrder.source == source)
     if search:
         pattern = f"%{search.lower()}%"
         stmt = stmt.where(
@@ -356,6 +370,47 @@ async def update_status_async(
         raise
     await db.refresh(row)
     return _row_to_schema(row)
+
+
+async def update_sku_async(
+    db: AsyncSession, order_id: UUID, sku: str, organization_id: UUID | None = None
+) -> Order:
+    """Persist a resolved SKU onto an order.
+
+    Used by the fulfillment workflow's SKU-mapping step
+    (services/fulfillment/workflow.py) to replace a TikTok SKU with its
+    resolved Amazon SKU before inventory reservation, which re-fetches the
+    order from the DB rather than trusting an in-memory value.
+    """
+    row = await _get_row(db, order_id, organization_id)
+    if row.inventory_reserved:
+        raise ValidationError("Cannot change SKU after inventory has been reserved")
+    row.sku = sku
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    await db.refresh(row)
+    return _row_to_schema(row)
+
+
+async def mark_sheet_synced_async(db: AsyncSession, order_id: UUID) -> None:
+    """Record that this order's Google Sheet row was just written
+    successfully. Called only after a real, successful Sheets API write —
+    never speculatively."""
+    row = await _get_row(db, order_id, None)
+    row.sheet_synced_at = datetime.now(timezone.utc)
+    row.sheet_sync_error = None
+    await db.commit()
+
+
+async def mark_sheet_sync_failed_async(db: AsyncSession, order_id: UUID, error: str) -> None:
+    """Record that a Google Sheet sync attempt for this order failed, so
+    the UI can show a truthful retry-needed state instead of silence."""
+    row = await _get_row(db, order_id, None)
+    row.sheet_sync_error = error
+    await db.commit()
 
 
 async def reserve_inventory_async(
@@ -435,6 +490,15 @@ class OrderService:
         async def _run() -> Order:
             async with _BridgeSessionLocal() as db:
                 return await update_status_async(db, order_id, status, organization_id)
+
+        return _run_on_bridge_loop(_run())
+
+    def update_sku(
+        self, order_id: UUID, sku: str, organization_id: UUID | None = None
+    ) -> Order:
+        async def _run() -> Order:
+            async with _BridgeSessionLocal() as db:
+                return await update_sku_async(db, order_id, sku, organization_id)
 
         return _run_on_bridge_loop(_run())
 

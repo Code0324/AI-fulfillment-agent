@@ -89,6 +89,71 @@ const STEP_STATUS_META: Record<
 };
 
 // ---------------------------------------------------------------------------
+// New-workflow badge config — order source, SKU mapping, fulfillment
+// provider/mode. Reflects backend/app/services/fulfillment/workflow.py's
+// step 1 (load_order), step 3 (resolve_sku_mapping), and step 8
+// (select_fulfillment_provider) results.
+// ---------------------------------------------------------------------------
+
+const SOURCE_META: Record<string, { label: string; bg: string; text: string }> = {
+  MANUAL: { label: "Manual", bg: "bg-gray-100", text: "text-gray-700" },
+  AMAZON: { label: "Amazon", bg: "bg-orange-100", text: "text-orange-800" },
+  MOCK_AMAZON: { label: "Amazon (Mock)", bg: "bg-orange-50", text: "text-orange-700" },
+  TIKTOK: { label: "TikTok", bg: "bg-pink-100", text: "text-pink-800" },
+};
+
+const SKU_MAPPING_META: Record<
+  string,
+  { label: string; bg: string; text: string; blocked: boolean }
+> = {
+  not_required: { label: "Mapping Not Required", bg: "bg-gray-100", text: "text-gray-600", blocked: false },
+  matched: { label: "Mapping Resolved", bg: "bg-green-100", text: "text-green-800", blocked: false },
+  needs_review: { label: "Mapping Required — Needs Review", bg: "bg-yellow-100", text: "text-yellow-800", blocked: true },
+  not_found: { label: "Mapping Required — Not Found", bg: "bg-red-100", text: "text-red-800", blocked: true },
+  conflict: { label: "Mapping Required — Conflict", bg: "bg-red-100", text: "text-red-800", blocked: true },
+};
+
+function sourceBadge(source: string | null) {
+  if (!source) return null;
+  const meta = SOURCE_META[source] || { label: source, bg: "bg-gray-100", text: "text-gray-700" };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${meta.bg} ${meta.text}`}>
+      {meta.label}
+    </span>
+  );
+}
+
+function skuMappingBadge(status: string | null) {
+  if (!status) return null;
+  const meta = SKU_MAPPING_META[status] || { label: status, bg: "bg-gray-100", text: "text-gray-700", blocked: false };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${meta.bg} ${meta.text}`}>
+      {meta.blocked ? "⚠ " : ""}
+      {meta.label}
+    </span>
+  );
+}
+
+function providerModeBadge(mode: string | null) {
+  if (!mode) return null;
+  const isReal = mode === "real";
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide ${
+        isReal ? "bg-red-100 text-red-800" : "bg-purple-100 text-purple-800"
+      }`}
+      title={
+        isReal
+          ? "Executing against a real, configured integration"
+          : "Executing in the sandbox 3PL simulator — no real supplier/marketplace order is placed"
+      }
+    >
+      {isReal ? "REAL" : "MOCK / SANDBOX"}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -379,6 +444,24 @@ export default function FulfillmentWorkflowComponent() {
                         <span className="text-xs text-gray-400 font-mono">
                           {wf.id.slice(0, 8)}…
                         </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                        {sourceBadge(wf.order_source)}
+                        {skuMappingBadge(wf.sku_mapping_status)}
+                        {providerModeBadge(wf.provider_mode)}
+                        {wf.marketplace_provider && (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                              wf.marketplace_integration_configured
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-gray-100 text-gray-500"
+                            }`}
+                            title="Whether the marketplace-side provider (e.g. TikTok fulfillment-update) has real, configured credentials"
+                          >
+                            {wf.marketplace_provider}:{" "}
+                            {wf.marketplace_integration_configured ? "configured" : "not configured"}
+                          </span>
+                        )}
                       </div>
                       <div className="text-sm text-gray-700">
                         Order: {wf.order_id.slice(0, 8)}…

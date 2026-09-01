@@ -27,6 +27,13 @@ class ValidationError(AppError):
         super().__init__(message=message, status_code=422)
 
 
+class ConflictError(AppError):
+    """The request conflicts with existing state (e.g. a uniqueness constraint)."""
+
+    def __init__(self, message: str = "Conflicts with existing data"):
+        super().__init__(message=message, status_code=409)
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """Attach centralized exception handlers to the FastAPI app."""
 

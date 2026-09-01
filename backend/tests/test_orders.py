@@ -139,6 +139,26 @@ class TestCreateOrder:
         r2 = client.post("/api/v1/orders", json=ORDER_PAYLOAD).json()
         assert r1["id"] != r2["id"]
 
+    def test_duplicate_tiktok_order_id_returns_409_not_500(self, client):
+        """Regression: the DB-level UniqueConstraint on
+        (organization_id, tiktok_order_id) is the real idempotency
+        guarantee (see models.py). A raw IntegrityError bubbling up as an
+        unhandled 500 was a real gap found during manual verification —
+        this must be a clean 409, and no duplicate must be created."""
+        payload = {**ORDER_PAYLOAD, "source": "TIKTOK", "tiktok_order_id": "TT-DUPCHECK-001"}
+        resp1 = client.post("/api/v1/orders", json=payload)
+        assert resp1.status_code == 201
+
+        resp2 = client.post("/api/v1/orders", json={**payload, "customer_name": "Someone Else"})
+        assert resp2.status_code == 409
+        assert "TT-DUPCHECK-001" in resp2.json()["error"]
+
+        listing = client.get(
+            "/api/v1/orders", params={"source": "TIKTOK", "page_size": 100}
+        ).json()
+        matching = [o for o in listing["items"] if o.get("tiktok_order_id") == "TT-DUPCHECK-001"]
+        assert len(matching) == 1
+
 
 # ===========================================================================
 # GET /api/v1/orders  (paginated)
@@ -244,9 +264,10 @@ class TestGetOrder:
         created = _create_order(client)
         resp = client.get(f"/api/v1/orders/{created['id']}").json()
         assert set(resp.keys()) == {
-            "id", "customer_name", "shipping_address", "product_name",
-            "sku", "quantity", "status", "inventory_reserved",
-            "created_at", "updated_at",
+            "id", "organization_id", "customer_name", "shipping_address",
+            "product_name", "sku", "variation", "quantity", "status",
+            "source", "inventory_reserved", "tiktok_order_id", "channel_metadata",
+            "sheet_synced_at", "sheet_sync_error", "sheet_sync_status", "created_at", "updated_at",
         }
         assert resp["customer_name"] == "Jane Doe"
         assert resp["quantity"] == 2

@@ -126,3 +126,39 @@ def auth_headers(http_client) -> dict[str, str]:
     assert resp.status_code == 201, resp.text
 
     return headers
+
+
+def auth_org(http_client) -> tuple[dict[str, str], uuid.UUID]:
+    """Like auth_headers(), but also returns the created organization's id.
+
+    For tests that need to create a FulfillmentOrder directly against
+    order_service (bypassing the /api/v1/orders HTTP layer) while still
+    exercising a *real* authenticated session against that same
+    organization — needed once fulfillment.py started enforcing
+    get_current_organization + require_permission (see api/v1/fulfillment.py's
+    module docstring): a workflow/order created under an organization with
+    no matching JWT can never legitimately be approved/rejected/etc. over
+    HTTP, since ownership is re-verified from the database on every call.
+    """
+    suffix = uuid.uuid4().hex[:12]
+    resp = http_client.post(
+        "/auth/signup",
+        json={
+            "email": f"testuser_{suffix}@example.com",
+            "username": f"testuser_{suffix}",
+            "password": "Test-Password-123!",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    token = resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = http_client.post(
+        "/organizations",
+        json={"name": f"Test Org {suffix}", "slug": f"test-org-{suffix}"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    org_id = uuid.UUID(resp.json()["id"])
+
+    return headers, org_id

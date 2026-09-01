@@ -72,6 +72,10 @@ class ProviderRegistry:
         """Get the Amazon sandbox provider (if registered)."""
         return self._providers.get("amazon_order_provider")
 
+    def get_tiktok_provider(self) -> BaseProvider | None:
+        """Get the TikTok Shop provider (if registered)."""
+        return self._providers.get("tiktok_order_provider")
+
     def list_all(self) -> list[dict]:
         """List all registered providers."""
         return [
@@ -86,6 +90,7 @@ class ProviderRegistry:
                     "supports_supplier_verify": p.capabilities.supports_supplier_verify,
                     "supports_supplier_submit": p.capabilities.supports_supplier_submit,
                     "supports_tracking_read": p.capabilities.supports_tracking_read,
+                    "supports_fulfillment_update": p.capabilities.supports_fulfillment_update,
                 },
             }
             for p in self._providers.values()
@@ -117,7 +122,19 @@ def create_default_registry() -> ProviderRegistry:
             logger.info("Amazon sandbox provider NOT registered (no credentials)")
     except Exception as e:
         logger.info("Amazon sandbox provider registration skipped: %s", type(e).__name__)
-    
+
+    # Try to register TikTok Shop provider (real integration, never mock)
+    try:
+        from app.services.providers.tiktok.order_provider import TikTokOrderProvider
+        tiktok_provider = TikTokOrderProvider()
+        if tiktok_provider.is_configured:
+            registry.register(tiktok_provider)
+            logger.info("TikTok Shop provider registered (credentials available)")
+        else:
+            logger.info("TikTok Shop provider NOT registered (no credentials)")
+    except Exception as e:
+        logger.info("TikTok Shop provider registration skipped: %s", type(e).__name__)
+
     return registry
 
 

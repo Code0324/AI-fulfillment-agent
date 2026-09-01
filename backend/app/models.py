@@ -18,7 +18,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     String, Boolean, DateTime, ForeignKey, Enum, func, Text,
-    Integer, UniqueConstraint,
+    Integer, UniqueConstraint, Float,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -314,7 +314,34 @@ class FulfillmentOrder(Base):
 
     # Amazon order reference
     amazon_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    source: Mapped[str] = mapped_column(String(20), default="MANUAL", nullable=False)  # MANUAL, AMAZON, MOCK_AMAZON
+    source: Mapped[str] = mapped_column(String(20), default="MANUAL", nullable=False)  # MANUAL, AMAZON, MOCK_AMAZON, TIKTOK
+
+    # TikTok Shop order reference. Follows the exact same pattern as
+    # amazon_order_id above (nullable, indexed, String(255)) rather than
+    # inventing a generic external-ID column. The unique constraint below
+    # is the real, DB-enforced idempotency guarantee for TikTok orders —
+    # Postgres treats NULLs as distinct, so it is satisfied for every
+    # non-TikTok order automatically.
+    tiktok_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # TikTok product variation (e.g. size/color), required alongside sku
+    # to resolve a TikTok SKU to an Amazon SKU/ASIN — see
+    # services/sku_mapping/. Unused (NULL) for non-TikTok orders.
+    variation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Channel-specific business fields that don't fit the generic
+    # shipping_address/customer_name shape — e.g. for TikTok: phone_number,
+    # address_line_1, delivery_instructions, city, state, zipcode, price,
+    # delivery_date, order_date, order_status (mirrors app.schemas.tiktok.
+    # TikTokOrder). Kept as one JSONB blob rather than ~9 new nullable
+    # columns since it's channel-specific display/export data, not
+    # something the fulfillment workflow queries by field. NULL for
+    # non-TikTok orders.
+    channel_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # Google Sheet sync bookkeeping — never fabricated: only set when a
+    # real sync attempt actually ran. See services/google_sheets/.
+    sheet_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sheet_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Order details
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -334,6 +361,10 @@ class FulfillmentOrder(Base):
     organization: Mapped["Organization"] = relationship(back_populates="orders")
     workflows: Mapped[list["FulfillmentWorkflow"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "tiktok_order_id", name="uq_org_tiktok_order_id"),
     )
 
 
@@ -366,6 +397,46 @@ class InventoryItem(Base):
 
     __table_args__ = (
         UniqueConstraint("organization_id", "sku", name="uq_org_sku"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SKU Mapping (per-tenant) — TikTok SKU+variation -> Amazon SKU/ASIN
+# ---------------------------------------------------------------------------
+
+class SkuMapping(Base):
+    """A TikTok SKU + variation -> Amazon SKU/ASIN mapping, scoped to an
+    organization.
+
+    Only rows with status="matched" (source="explicit") are ever used to
+    resolve a real Amazon SKU for fulfillment — see
+    services/sku_mapping/engine.py. A fuzzy-suggested candidate is never
+    auto-promoted to "matched" regardless of confidence score.
+    """
+    __tablename__ = "sku_mappings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    tiktok_sku: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    variation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    amazon_sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    asin: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # matched | needs_review | not_found | conflict
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="needs_review")
+    # explicit | fuzzy_suggestion — how this row was established (auditability)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="fuzzy_suggestion")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "tiktok_sku", "variation", name="uq_org_tiktok_sku_variation"),
     )
 
 
