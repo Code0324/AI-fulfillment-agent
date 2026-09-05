@@ -1,0 +1,11 @@
+{
+  "disabledMcpjsonServers": [
+    "amazon",
+    "tiktok_shop",
+    "google_sheets",
+    "amazon_fulfillment_orchestrator"
+  ],
+  "enabledMcpjsonServers": [
+    "notifications"
+  ]
+}
