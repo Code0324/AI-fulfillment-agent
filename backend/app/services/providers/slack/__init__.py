@@ -1,0 +1,1 @@
+"""Slack notification provider package."""

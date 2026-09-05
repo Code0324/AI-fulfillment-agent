@@ -265,7 +265,7 @@ class TestGetOrder:
         resp = client.get(f"/api/v1/orders/{created['id']}").json()
         assert set(resp.keys()) == {
             "id", "organization_id", "customer_name", "shipping_address",
-            "product_name", "sku", "variation", "quantity", "status",
+            "product_name", "sku", "asin", "variation", "quantity", "status",
             "source", "inventory_reserved", "tiktok_order_id", "channel_metadata",
             "sheet_synced_at", "sheet_sync_error", "sheet_sync_status", "created_at", "updated_at",
         }

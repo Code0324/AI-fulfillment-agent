@@ -101,7 +101,9 @@ class TestStartFulfillment:
         assert body["order_id"] == str(order.id)
         # Workflow pauses at WAITING_APPROVAL for high-risk submit
         assert body["status"] == "waiting_approval"
-        assert len(body["steps"]) == 13
+        # 14 steps: the original 13 plus check_price_guard (Amazon price
+        # safety gate — see services/fulfillment/workflow.py).
+        assert len(body["steps"]) == 14
         # Approval step should be waiting
         approval_step = next(
             s for s in body["steps"] if s["name"] == "request_approval"
@@ -174,11 +176,11 @@ class TestStartFulfillment:
         step_names = [s["name"] for s in resp["steps"]]
         expected = [
             "load_order", "validate_order", "resolve_sku_mapping",
-            "validate_address", "check_inventory", "reserve_inventory",
-            "prepare_supplier_order", "select_fulfillment_provider",
-            "prepare_provider_order", "validate_provider_order",
-            "request_approval", "submit_fulfillment_order",
-            "generate_confirmation",
+            "check_price_guard", "validate_address", "check_inventory",
+            "reserve_inventory", "prepare_supplier_order",
+            "select_fulfillment_provider", "prepare_provider_order",
+            "validate_provider_order", "request_approval",
+            "submit_fulfillment_order", "generate_confirmation",
         ]
         assert step_names == expected
         assert resp["order_source"] == "MANUAL"

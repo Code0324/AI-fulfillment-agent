@@ -348,6 +348,13 @@ class FulfillmentOrder(Base):
     shipping_address: Mapped[str] = mapped_column(Text, nullable=False)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     sku: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    # Amazon ASIN, when known directly (e.g. an Amazon-sourced order —
+    # AMAZON/MOCK_AMAZON). Nullable: not every order has one yet, and
+    # TikTok-sourced orders instead resolve an ASIN indirectly via
+    # services/sku_mapping — see
+    # services/fulfillment/workflow.py's _step_check_price_guard for the
+    # resolution priority (this field first, then SKU-mapping fallback).
+    asin: Mapped[str | None] = mapped_column(String(20), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     inventory_reserved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

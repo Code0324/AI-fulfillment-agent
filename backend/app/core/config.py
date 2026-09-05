@@ -170,5 +170,57 @@ class Settings:
         """Check if Google Sheets credentials are configured."""
         return bool(self.GOOGLE_SHEETS_SPREADSHEET_ID and self.GOOGLE_SHEETS_CREDENTIALS_JSON)
 
+    # -------------------------------------------------------------------
+    # Amazon Pricing Provider Configuration
+    #
+    # Selects which app.services.providers.pricing_base.PricingProviderBase
+    # implementation backs check_price/check_inventory/get_product (both the
+    # amazon MCP server and the fulfillment workflow's price safety-gate —
+    # see services/fulfillment/workflow.py). Exactly one is active at a
+    # time. Defaults to "mock" — see .env.example for the trade-offs of
+    # each option; this is a deliberate deploy-time choice, never implied.
+    # -------------------------------------------------------------------
+    PRICING_PROVIDER: str = os.getenv("PRICING_PROVIDER", "mock")
+
+    # Maximum Amazon price (USD) a fulfillment order is allowed to proceed
+    # past automatically. Above this, or if the price can't be determined
+    # at all, the workflow stops for human review — see
+    # services/fulfillment/workflow.py's _step_check_price_guard.
+    MAX_ALLOWED_PRICE_USD: float = float(os.getenv("MAX_ALLOWED_PRICE_USD", "500.00"))
+
+    # Product Advertising API (PA-API v5) — real, live Amazon pricing data.
+    # Requires an approved Amazon Associates account; see
+    # services/providers/amazon/pa_api_pricing.py's module docstring for the
+    # eligibility caveat. AMAZON_PA_API_ENABLED is a separate, explicit gate
+    # from merely having credentials set.
+    AMAZON_PA_API_ENABLED: bool = os.getenv("AMAZON_PA_API_ENABLED", "false").lower() in ("true", "1", "yes")
+    AMAZON_PA_API_ACCESS_KEY: str = os.getenv("AMAZON_PA_API_ACCESS_KEY", "")
+    AMAZON_PA_API_SECRET_KEY: str = os.getenv("AMAZON_PA_API_SECRET_KEY", "")
+    AMAZON_PA_API_PARTNER_TAG: str = os.getenv("AMAZON_PA_API_PARTNER_TAG", "")
+    AMAZON_PA_API_PARTNER_TYPE: str = os.getenv("AMAZON_PA_API_PARTNER_TYPE", "Associates")
+    AMAZON_PA_API_MARKETPLACE: str = os.getenv("AMAZON_PA_API_MARKETPLACE", "www.amazon.com")
+    AMAZON_PA_API_REGION: str = os.getenv("AMAZON_PA_API_REGION", "us-east-1")
+    AMAZON_PA_API_HOST: str = os.getenv("AMAZON_PA_API_HOST", "webservices.amazon.com")
+
+    # Public-product-page scraping fallback — see
+    # services/providers/amazon/scrape_pricing.py's module docstring for
+    # why this is opt-in and last-resort, not a default.
+    AMAZON_SCRAPE_PRICING_ENABLED: bool = os.getenv("AMAZON_SCRAPE_PRICING_ENABLED", "false").lower() in ("true", "1", "yes")
+
+    # -------------------------------------------------------------------
+    # Notification Provider Configuration
+    #
+    # Selects which app.services.providers.notifications_base.
+    # NotificationProviderBase implementation backs the notifications MCP
+    # server (backend/mcp_servers/notifications/) — used to alert a human
+    # about orders sitting in WAITING_APPROVAL or FAILED (price-guard stop,
+    # etc.). Defaults to "log" (writes a real log line — never fabricates
+    # having reached a human — but doesn't page anyone) so real alerting
+    # is a deliberate deploy-time choice, same reasoning as
+    # PRICING_PROVIDER above.
+    # -------------------------------------------------------------------
+    NOTIFICATION_PROVIDER: str = os.getenv("NOTIFICATION_PROVIDER", "log")
+    SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
+
 
 settings = Settings()

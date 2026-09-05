@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.core.config import settings
 from app.core.errors import NotFoundError, ValidationError
 from app.core.security import redact_pii
 from app.schemas.address import AddressProcessingStatus
@@ -43,6 +44,7 @@ from app.services.address.service import address_processing_service
 from app.services.automation.engine import automation_engine
 from app.services.inventory_service import inventory_service
 from app.services.order_service import order_service
+from app.services.providers.pricing_base import PricingProviderError
 from app.services.providers.registry import provider_registry
 from app.services.sku_mapping.engine import sku_mapping_engine
 
@@ -54,15 +56,19 @@ logger = logging.getLogger(__name__)
 # Source/channel-aware fulfillment workflow: order source is identified up
 # front (step 1), the source SKU is resolved to an internal SKU before
 # anything else depends on it (step 3, gated on human review when
-# unresolved), and the fulfillment provider/channel is explicitly selected
-# and labeled REAL vs MOCK/SANDBOX (steps 8-9) rather than being implicit in
-# a single generic "supplier sandbox" step. See docs/tiktok-integration.md.
+# unresolved), an Amazon price safety-gate runs immediately after (step 4 —
+# STOPS the workflow for human review if the price can't be determined or
+# exceeds settings.MAX_ALLOWED_PRICE_USD; see _step_check_price_guard), and
+# the fulfillment provider/channel is explicitly selected and labeled REAL
+# vs MOCK/SANDBOX (steps 9-10) rather than being implicit in a single
+# generic "supplier sandbox" step. See docs/tiktok-integration.md.
 # ---------------------------------------------------------------------------
 
 WORKFLOW_STEPS = [
     {"name": "load_order", "description": "Load order and identify source"},
     {"name": "validate_order", "description": "Validate order and customer data"},
     {"name": "resolve_sku_mapping", "description": "Resolve SKU mapping"},
+    {"name": "check_price_guard", "description": "Check Amazon price against safety threshold"},
     {"name": "validate_address", "description": "Validate shipping address"},
     {"name": "check_inventory", "description": "Check inventory availability"},
     {"name": "reserve_inventory", "description": "Reserve inventory for order"},
@@ -390,10 +396,18 @@ class FulfillmentWorkflowEngine:
                 mapping_result = _parse_step_result(workflow.steps[2].result)
                 workflow.sku_mapping_status = mapping_result.get("status")
 
-            # Step 3: Validate Shipping Address
+            # Step 3: Check Price Guard — Amazon price safety gate. STOPS the
+            # workflow (never silently continues) if the price can't be
+            # determined or exceeds settings.MAX_ALLOWED_PRICE_USD.
             if workflow.steps[3].status != FulfillmentStepStatus.COMPLETED:
+                self._run_step(
+                    workflow, 3, lambda: self._step_check_price_guard(order, mapping_result)
+                )
+
+            # Step 4: Validate Shipping Address
+            if workflow.steps[4].status != FulfillmentStepStatus.COMPLETED:
                 address_result = self._run_step(
-                    workflow, 3, lambda: self._step_validate_address(order)
+                    workflow, 4, lambda: self._step_validate_address(order)
                 )
                 if address_result and address_result.get("status") in (
                     AddressProcessingStatus.FAILED.value,
@@ -405,22 +419,22 @@ class FulfillmentWorkflowEngine:
                     )
                     return workflow
             else:
-                address_result = _parse_step_result(workflow.steps[3].result)
+                address_result = _parse_step_result(workflow.steps[4].result)
 
-            # Step 4: Check Inventory (SKU is already resolved by Step 2)
-            if workflow.steps[4].status != FulfillmentStepStatus.COMPLETED:
-                self._run_step(workflow, 4, lambda: self._step_check_inventory(order))
-
-            # Step 5: Reserve Inventory (idempotent — skips if already reserved)
+            # Step 5: Check Inventory (SKU is already resolved by Step 2)
             if workflow.steps[5].status != FulfillmentStepStatus.COMPLETED:
+                self._run_step(workflow, 5, lambda: self._step_check_inventory(order))
+
+            # Step 6: Reserve Inventory (idempotent — skips if already reserved)
+            if workflow.steps[6].status != FulfillmentStepStatus.COMPLETED:
                 self._run_step(
-                    workflow, 5, lambda: self._step_reserve_inventory(order)
+                    workflow, 6, lambda: self._step_reserve_inventory(order)
                 )
 
-            # Step 6: Prepare Supplier Order
-            if workflow.steps[6].status != FulfillmentStepStatus.COMPLETED:
+            # Step 7: Prepare Supplier Order
+            if workflow.steps[7].status != FulfillmentStepStatus.COMPLETED:
                 supplier_payload = self._run_step(
-                    workflow, 6, lambda: self._step_prepare_supplier_order(
+                    workflow, 7, lambda: self._step_prepare_supplier_order(
                         order, address_result, shipping_method
                     )
                 )
@@ -428,13 +442,13 @@ class FulfillmentWorkflowEngine:
             else:
                 supplier_payload = workflow.supplier_payload
 
-            # Step 7: Select Fulfillment Provider — REAL vs MOCK/SANDBOX, never fabricated
-            if workflow.steps[7].status != FulfillmentStepStatus.COMPLETED:
+            # Step 8: Select Fulfillment Provider — REAL vs MOCK/SANDBOX, never fabricated
+            if workflow.steps[8].status != FulfillmentStepStatus.COMPLETED:
                 provider_result = self._run_step(
-                    workflow, 7, lambda: self._step_select_fulfillment_provider(order)
+                    workflow, 8, lambda: self._step_select_fulfillment_provider(order)
                 )
             else:
-                provider_result = _parse_step_result(workflow.steps[7].result)
+                provider_result = _parse_step_result(workflow.steps[8].result)
             workflow.fulfillment_provider = provider_result.get("fulfillment_provider")
             workflow.provider_mode = provider_result.get("provider_mode")
             workflow.marketplace_provider = provider_result.get("marketplace_provider")
@@ -442,24 +456,24 @@ class FulfillmentWorkflowEngine:
                 provider_result.get("marketplace_integration_configured")
             )
 
-            # Step 8: Prepare Provider Order (opens sandbox, fills product/address/shipping)
-            if workflow.steps[8].status != FulfillmentStepStatus.COMPLETED:
+            # Step 9: Prepare Provider Order (opens sandbox, fills product/address/shipping)
+            if workflow.steps[9].status != FulfillmentStepStatus.COMPLETED:
                 session = self._run_step(
-                    workflow, 8, lambda: self._step_prepare_provider_order(
+                    workflow, 9, lambda: self._step_prepare_provider_order(
                         order, address_result, supplier_payload, shipping_method
                     )
                 )
             else:
-                session = _parse_step_result(workflow.steps[8].result)
+                session = _parse_step_result(workflow.steps[9].result)
 
-            # Step 9: Validate Provider Order
-            if workflow.steps[9].status != FulfillmentStepStatus.COMPLETED:
+            # Step 10: Validate Provider Order
+            if workflow.steps[10].status != FulfillmentStepStatus.COMPLETED:
                 self._run_step(
-                    workflow, 9, lambda: self._step_verify_order(supplier_payload)
+                    workflow, 10, lambda: self._step_verify_order(supplier_payload)
                 )
 
-            # Step 10: Human Approval Gate (HIGH-RISK)
-            if workflow.steps[10].status != FulfillmentStepStatus.COMPLETED:
+            # Step 11: Human Approval Gate (HIGH-RISK)
+            if workflow.steps[11].status != FulfillmentStepStatus.COMPLETED:
                 workflow = self._step_request_approval(workflow, session)
                 if workflow.status == FulfillmentStatus.WAITING_APPROVAL:
                     return workflow
@@ -474,8 +488,8 @@ class FulfillmentWorkflowEngine:
         self._transition(workflow, FulfillmentStatus.RUNNING)
 
         try:
-            # Step 11: Submit Fulfillment Order
-            if workflow.steps[11].status != FulfillmentStepStatus.COMPLETED:
+            # Step 12: Submit Fulfillment Order
+            if workflow.steps[12].status != FulfillmentStepStatus.COMPLETED:
                 # Submission safety: check for duplicate
                 if workflow.confirmation is not None:
                     self._audit(
@@ -486,17 +500,17 @@ class FulfillmentWorkflowEngine:
                     return workflow
 
                 self._run_step(
-                    workflow, 11, lambda: self._step_submit_order()
+                    workflow, 12, lambda: self._step_submit_order()
                 )
 
-            # Step 12: Generate Confirmation
-            if workflow.steps[12].status != FulfillmentStepStatus.COMPLETED:
+            # Step 13: Generate Confirmation
+            if workflow.steps[13].status != FulfillmentStepStatus.COMPLETED:
                 if workflow.confirmation is not None:
                     # Confirmation already exists
                     return workflow
 
                 confirmation = self._run_step(
-                    workflow, 12, lambda: self._step_generate_confirmation()
+                    workflow, 13, lambda: self._step_generate_confirmation()
                 )
                 workflow.confirmation = confirmation
 
@@ -775,6 +789,84 @@ class FulfillmentWorkflowEngine:
             "amazon_sku": mapping.amazon_sku,
             "asin": mapping.asin,
             "confidence": mapping.confidence_score,
+        }
+
+    def _step_check_price_guard(self, order, mapping_result: dict) -> dict:
+        """Step: Amazon price safety gate — HARD SAFETY RULE.
+
+        If the ASIN's current Amazon price can't be determined at all, or
+        it exceeds settings.MAX_ALLOWED_PRICE_USD, this raises
+        ValidationError, which _run_step turns into a FAILED step and
+        _execute_workflow_from_step's outer try/except turns into a FAILED
+        workflow via _fail_workflow — the same "STOP for human review"
+        path _step_validate_order and _step_verify_order already use.
+        There is no code path in this method that lets the workflow
+        continue past an unverifiable price; "provider not configured",
+        "request failed", and "price too high" are all treated as STOP,
+        never as "skip the check and proceed."
+
+        ASIN resolution priority:
+        1. order.asin directly — a first-class, nullable column on
+           FulfillmentOrder (see app/models.py). Set for AMAZON/
+           MOCK_AMAZON-sourced orders where the ASIN is already known, and
+           usable for any source: if it's set, it's trusted and used
+           as-is, without going through SKU-mapping at all.
+        2. TIKTOK-sourced orders with no direct order.asin: fall back to
+           the ASIN already resolved in Step 2 (_step_resolve_sku_mapping)
+           — reused from `mapping_result` here rather than re-querying,
+           since that step is this one's only trustworthy source of a
+           *confirmed* mapping's ASIN. Not attempted for other sources —
+           SKU-mapping resolves a TikTok SKU specifically, so it has
+           nothing to resolve for a MANUAL or already-direct-ASIN order.
+        3. Neither resolves: there is no Amazon price to check for this
+           order — reported as "not applicable" (an explicit, logged,
+           auditable result) and the workflow continues normally. This is
+           NOT the same as "checked and fine" — a reader of the audit log
+           must be able to tell the two apart, which is why "applicable"
+           and "checked" are both recorded. This is the same safe-default
+           behavior as before priority 1 was added: an order this
+           codebase has no way to price-check is never blocked over it,
+           but never silently treated as verified either.
+        """
+        asin: str | None = order.asin
+        resolution = "direct" if asin else None
+        if not asin and order.source == "TIKTOK":
+            asin = mapping_result.get("asin")
+            resolution = "sku_mapping" if asin else None
+
+        if not asin:
+            return {
+                "checked": False,
+                "applicable": False,
+                "reason": "No ASIN resolvable for this order — Amazon price check not applicable",
+            }
+
+        pricing_provider = provider_registry.get_pricing_provider()
+        try:
+            price_result = pricing_provider.get_price(asin)
+        except PricingProviderError as e:
+            raise ValidationError(
+                f"Price check unavailable for ASIN {asin} via "
+                f"{pricing_provider.provider_name}: {e.message}. Routing to human "
+                f"review — an order is never auto-approved when its Amazon price "
+                f"cannot be verified."
+            )
+
+        price = price_result["price"]
+        if price > settings.MAX_ALLOWED_PRICE_USD:
+            raise ValidationError(
+                f"Amazon price ${price:.2f} for ASIN {asin} exceeds the maximum "
+                f"allowed ${settings.MAX_ALLOWED_PRICE_USD:.2f} — routing to human review."
+            )
+
+        return {
+            "checked": True,
+            "applicable": True,
+            "asin": asin,
+            "asin_resolution": resolution,
+            "price": price,
+            "max_allowed": settings.MAX_ALLOWED_PRICE_USD,
+            "source": pricing_provider.provider_name,
         }
 
     def _step_validate_address(self, order) -> dict:

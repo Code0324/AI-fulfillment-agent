@@ -46,6 +46,15 @@ class Order(BaseModel):
     shipping_address: str = Field(..., min_length=1, description="Shipping address")
     product_name: str = Field(..., min_length=1, description="Product or item name")
     sku: str = Field(default="", description="Product SKU for inventory lookup")
+    asin: str | None = Field(
+        None,
+        description=(
+            "Amazon ASIN, when known directly (typically for AMAZON/"
+            "MOCK_AMAZON-sourced orders). TikTok-sourced orders resolve an "
+            "ASIN indirectly via app.services.sku_mapping instead — see "
+            "services/fulfillment/workflow.py's _step_check_price_guard."
+        ),
+    )
     variation: str | None = Field(
         None, description="Product variation (e.g. size/color) — set for TikTok-sourced orders"
     )
@@ -82,6 +91,13 @@ class OrderCreate(BaseModel):
     shipping_address: str = Field(..., min_length=1, description="Shipping address")
     product_name: str = Field(..., min_length=1, description="Product or item name")
     sku: str = Field(default="", description="Product SKU for inventory lookup")
+    asin: str | None = Field(
+        None,
+        description=(
+            "Amazon ASIN, when known directly (typically for AMAZON/"
+            "MOCK_AMAZON-sourced orders)."
+        ),
+    )
     variation: str | None = Field(
         None, description="Product variation (e.g. size/color) — set for TikTok-sourced orders"
     )

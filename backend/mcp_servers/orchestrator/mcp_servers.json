@@ -1,0 +1,24 @@
+{
+  "servers": [
+    {
+      "name": "amazon",
+      "command": "/home/ummay/.venvs/amazon-backend/bin/python",
+      "args": ["-m", "mcp_servers.amazon.server"]
+    },
+    {
+      "name": "tiktok_shop",
+      "command": "/home/ummay/.venvs/amazon-backend/bin/python",
+      "args": ["-m", "mcp_servers.tiktok_shop.server"]
+    },
+    {
+      "name": "google_sheets",
+      "command": "/home/ummay/.venvs/amazon-backend/bin/python",
+      "args": ["-m", "mcp_servers.google_sheets.server"]
+    },
+    {
+      "name": "notifications",
+      "command": "/home/ummay/.venvs/amazon-backend/bin/python",
+      "args": ["-m", "mcp_servers.notifications.server"]
+    }
+  ]
+}
