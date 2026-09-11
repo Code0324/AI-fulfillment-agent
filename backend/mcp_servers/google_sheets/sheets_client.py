@@ -33,12 +33,34 @@ class GenericSheetsClient:
     lazily so importing this module never fails when credentials are absent.
     """
 
+    # Repo root = parent of backend/ (this file lives at
+    # backend/mcp_servers/google_sheets/sheets_client.py). Values in the
+    # root .env are documented as relative to the repo root, but this
+    # module is also imported by the MCP server, which runs with backend/
+    # as cwd -- so a non-absolute path is resolved against the repo root
+    # FIRST, falling back to cwd-relative for backwards compatibility.
+    _REPO_ROOT = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+
     def __init__(self) -> None:
         self._service = None
 
     @property
     def credentials_path(self) -> str:
-        return os.getenv("GOOGLE_SHEETS_CREDENTIALS_PATH", "")
+        """GOOGLE_SHEETS_CREDENTIALS_PATH, resolved to a usable path.
+
+        Non-absolute values are interpreted against the repo root (the
+        .env convention) when possible, then against the current working
+        directory. Never logs the value beyond the path itself.
+        """
+        raw = os.getenv("GOOGLE_SHEETS_CREDENTIALS_PATH", "")
+        if not raw or os.path.isabs(raw):
+            return raw
+        rooted = os.path.join(self._REPO_ROOT, raw)
+        if os.path.isfile(rooted):
+            return rooted
+        return raw
 
     @property
     def is_configured(self) -> bool:
@@ -134,6 +156,87 @@ class GenericSheetsClient:
                 return {"row_id": idx, "values": row}
         return None
 
+    # ------------------------------------------------------------------
+    # Orders-tab helpers (used by the processing job)
+    # ------------------------------------------------------------------
+
+    def fetch_pending_orders(
+        self, sheet_id: str, sheet_name: str = "Sheet1",
+        statuses: tuple[str, ...] = ("pending",),
+    ) -> list[dict]:
+        """Fetch rows in the Orders tab whose Status is in `statuses`.
+
+        Defaults to Status = 'Pending' only. Callers may pass extra
+        statuses (e.g. ("pending", "waiting approval")) to pick up rows
+        paused for human review — case-insensitive comparison.
+
+        Returns a list of dicts, each with:
+          - row_number (1-indexed, for updating later)
+          - order_id, buyer_name, shipping_address, city, state, zip,
+            country, phone, tiktok_sku, qty, price_paid, status
+        """
+        rows = self.read_rows(sheet_id, sheet_name)
+        if not rows:
+            return []
+        wanted = {s.strip().lower() for s in statuses}
+        # Skip header row if present
+        start = 1 if rows and _safe_get(rows[0], COL_STATUS).lower() == "status" else 0
+        pending = []
+        for idx, row in enumerate(rows[start:], start=start + 1):
+            status = _safe_get(row, COL_STATUS)
+            if status.lower() in wanted:
+                pending.append({
+                    "row_number": idx,
+                    "order_id": _safe_get(row, COL_ORDER_ID),
+                    "buyer_name": _safe_get(row, COL_BUYER_NAME),
+                    "shipping_address": _safe_get(row, COL_SHIPPING_ADDRESS),
+                    "city": _safe_get(row, COL_CITY),
+                    "state": _safe_get(row, COL_STATE),
+                    "zip": _safe_get(row, COL_ZIP),
+                    "country": _safe_get(row, COL_COUNTRY),
+                    "phone": _safe_get(row, COL_PHONE),
+                    "tiktok_sku": _safe_get(row, COL_TIKTOK_SKU),
+                    "qty": _safe_get(row, COL_QTY, "1"),
+                    "price_paid": _safe_get(row, COL_PRICE_PAID),
+                    "status": status,
+                })
+        return pending
+
+    def update_order_status(
+        self,
+        sheet_id: str,
+        row_number: int,
+        status: str,
+        amazon_asin_sku: str = "",
+        amazon_order_id: str = "",
+        tracking_number: str = "",
+        notes: str = "",
+        sheet_name: str = "Sheet1",
+    ) -> dict:
+        """Update a specific order row's Status and Amazon-related fields.
+
+        Only overwrites the columns that are passed (non-empty string values).
+        The row is identified by its 1-indexed row_number.
+        """
+        range_ = f"{sheet_name}!L{row_number}:P{row_number}"
+        values = [status, amazon_asin_sku, amazon_order_id, tracking_number, notes]
+        service = self._ensure_service()
+        try:
+            result = (
+                service.spreadsheets()
+                .values()
+                .update(
+                    spreadsheetId=sheet_id,
+                    range=range_,
+                    valueInputOption="USER_ENTERED",
+                    body={"values": [values]},
+                )
+                .execute()
+            )
+        except Exception as e:
+            raise SheetsClientError(f"Failed to update order row {row_number}: {type(e).__name__}: {e}") from e
+        return result
+
 
 def _column_letter(n: int) -> str:
     """1 -> 'A', 26 -> 'Z', 27 -> 'AA', ... (n = number of columns)."""
@@ -142,6 +245,47 @@ def _column_letter(n: int) -> str:
         n, remainder = divmod(n - 1, 26)
         letters = chr(65 + remainder) + letters
     return letters or "A"
+
+
+# ---------------------------------------------------------------------------
+# Orders-tab helpers (used by the processing job and the MCP server)
+# ---------------------------------------------------------------------------
+
+# Column layout for the Orders tab:
+# A=Order ID, B=Buyer Name, C=Shipping Address, D=City, E=State, F=Zip,
+# G=Country, H=Phone, I=TikTok SKU, J=Qty, K=Price Paid, L=Status,
+# M=Amazon ASIN/SKU, N=Amazon Order ID, O=Tracking Number, P=Notes
+ORDERS_HEADER = [
+    "Order ID", "Buyer Name", "Shipping Address", "City", "State",
+    "Zip", "Country", "Phone", "TikTok SKU", "Qty", "Price Paid",
+    "Status", "Amazon ASIN/SKU", "Amazon Order ID", "Tracking Number", "Notes",
+]
+
+# 0-indexed column positions for the fields the processing job reads/writes
+COL_ORDER_ID = 0
+COL_BUYER_NAME = 1
+COL_SHIPPING_ADDRESS = 2
+COL_CITY = 3
+COL_STATE = 4
+COL_ZIP = 5
+COL_COUNTRY = 6
+COL_PHONE = 7
+COL_TIKTOK_SKU = 8
+COL_QTY = 9
+COL_PRICE_PAID = 10
+COL_STATUS = 11
+COL_AMAZON_ASIN_SKU = 12
+COL_AMAZON_ORDER_ID = 13
+COL_TRACKING_NUMBER = 14
+COL_NOTES = 15
+
+
+def _safe_get(row: list[str], idx: int, default: str = "") -> str:
+    """Get a value from a row list, returning default if index is out of range."""
+    if idx < len(row):
+        val = row[idx]
+        return str(val).strip() if val else default
+    return default
 
 
 sheets_client = GenericSheetsClient()

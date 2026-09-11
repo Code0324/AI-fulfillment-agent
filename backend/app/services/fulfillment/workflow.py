@@ -524,6 +524,15 @@ class FulfillmentWorkflowEngine:
             from app.schemas.order import OrderStatus
             order_service.update_status(workflow.order_id, OrderStatus.PROCESSING)
 
+            # Persist the confirmation on the DB order — the durable
+            # "already fulfilled" marker. The workflow engine is in-memory;
+            # without this, a later run cannot tell a completed order from
+            # an interrupted one and might re-purchase.
+            if workflow.confirmation is not None:
+                order_service.record_fulfillment_confirmation(
+                    workflow.order_id, workflow.confirmation.confirmation_id
+                )
+
             self._audit(
                 workflow.id, workflow.order_id,
                 "FULFILLMENT_COMPLETED",
@@ -781,7 +790,12 @@ class FulfillmentWorkflowEngine:
         # Persist the resolved Amazon SKU — _step_reserve_inventory
         # re-fetches the order fresh from the DB, so this must be
         # written through, not just held on the in-memory `order`.
-        order_service.update_sku(order.id, mapping.amazon_sku, order.organization_id)
+        # Skip the write when it's already correct (e.g. resuming a
+        # workflow for an order that already reserved inventory —
+        # update_sku refuses ALL writes once inventory_reserved, even
+        # same-value rewrites, and a resume must not fail on a no-op).
+        if order.sku != mapping.amazon_sku:
+            order_service.update_sku(order.id, mapping.amazon_sku, order.organization_id)
         order.sku = mapping.amazon_sku
         return {
             "resolved": True,

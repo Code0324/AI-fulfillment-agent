@@ -1,0 +1,1028 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maviya Computers | Computer & Electronics Store</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: #f3f7fb;
+            color: #172033;
+        }
+
+        /* TOP BAR */
+        .top-bar {
+            background: #071a35;
+            color: white;
+            padding: 9px 6%;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+
+        /* HEADER */
+        header {
+            background: white;
+            padding: 18px 6%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 25px;
+            border-bottom: 1px solid #dbe4ef;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #0877d1;
+            white-space: nowrap;
+        }
+
+        .logo span {
+            color: #071a35;
+        }
+
+        .search {
+            flex: 1;
+            max-width: 650px;
+            display: flex;
+        }
+
+        .search input {
+            width: 100%;
+            padding: 13px;
+            border: 1px solid #cbd5e1;
+            border-radius: 5px 0 0 5px;
+            outline: none;
+            font-size: 15px;
+        }
+
+        .search input:focus {
+            border-color: #0877d1;
+        }
+
+        .search button {
+            padding: 13px 22px;
+            border: none;
+            background: #0877d1;
+            color: white;
+            cursor: pointer;
+            border-radius: 0 5px 5px 0;
+        }
+
+        .search button:hover {
+            background: #075ca8;
+        }
+
+        .header-icons {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+
+        .cart-count {
+            background: #0877d1;
+            color: white;
+            padding: 3px 7px;
+            border-radius: 20px;
+        }
+
+        /* NAVIGATION */
+        nav {
+            background: #0b2b50;
+            padding: 0 6%;
+        }
+
+        nav ul {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        nav ul li {
+            padding: 15px 18px;
+            color: white;
+            cursor: pointer;
+        }
+
+        nav ul li:hover {
+            background: #0877d1;
+        }
+
+        /* HERO */
+        .hero {
+            margin: 25px 6%;
+            min-height: 330px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: linear-gradient(110deg, #071a35, #0b5fa5);
+            display: flex;
+            align-items: center;
+            padding: 50px;
+            color: white;
+        }
+
+        .hero-text {
+            max-width: 600px;
+        }
+
+        .hero h1 {
+            font-size: 46px;
+            margin-bottom: 15px;
+        }
+
+        .hero p {
+            font-size: 18px;
+            color: #dceeff;
+            margin-bottom: 25px;
+        }
+
+        .hero button {
+            padding: 13px 25px;
+            background: #16a3ff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .hero button:hover {
+            background: #0877d1;
+        }
+
+        /* SECTION */
+        .section {
+            margin: 35px 6%;
+        }
+
+        .section-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-title h2 {
+            font-size: 27px;
+            color: #071a35;
+        }
+
+        .view-all {
+            color: #0877d1;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        /* CATEGORIES */
+        .categories {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .category {
+            background: white;
+            padding: 25px 10px;
+            text-align: center;
+            border: 1px solid #dbe4ef;
+            border-radius: 7px;
+            transition: .3s;
+            cursor: pointer;
+        }
+
+        .category:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(8, 119, 209, .18);
+            border-color: #0877d1;
+        }
+
+        .category-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+        }
+
+        .category h3 {
+            font-size: 15px;
+            color: #172033;
+        }
+
+        /* PRODUCTS */
+        .products {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .product {
+            background: white;
+            border: 1px solid #dbe4ef;
+            border-radius: 7px;
+            overflow: hidden;
+            position: relative;
+            transition: .3s;
+        }
+
+        .product:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(8, 119, 209, .16);
+        }
+
+        .badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: #0877d1;
+            color: white;
+            padding: 5px 9px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 2;
+        }
+
+        .product-image {
+            height: 190px;
+            background: #f7fbff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 15px;
+        }
+
+        .product-image img {
+            max-width: 100%;
+            max-height: 165px;
+            object-fit: contain;
+        }
+
+        .product-info {
+            padding: 17px;
+        }
+
+        .product-info h3 {
+            font-size: 16px;
+            line-height: 1.4;
+            min-height: 46px;
+            color: #172033;
+        }
+
+        .stars {
+            color: #f5a623;
+            margin: 8px 0;
+        }
+
+        .old-price {
+            color: #888;
+            text-decoration: line-through;
+            font-size: 14px;
+        }
+
+        .price {
+            color: #0877d1;
+            font-size: 21px;
+            font-weight: bold;
+            margin: 5px 0 12px;
+        }
+
+        .add-cart {
+            width: 100%;
+            padding: 11px;
+            background: #0b2b50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .add-cart:hover {
+            background: #0877d1;
+        }
+
+        /* FEATURES */
+        .features {
+            background: white;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px 6%;
+            margin-top: 40px;
+            border-top: 1px solid #dbe4ef;
+            border-bottom: 1px solid #dbe4ef;
+        }
+
+        .feature {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .feature-icon {
+            font-size: 35px;
+        }
+
+        .feature h3 {
+            font-size: 16px;
+            margin-bottom: 5px;
+            color: #071a35;
+        }
+
+        .feature p {
+            color: #777;
+            font-size: 13px;
+        }
+
+        /* NEWSLETTER */
+        .newsletter {
+            background: #0b2b50;
+            color: white;
+            padding: 45px 6%;
+            text-align: center;
+        }
+
+        .newsletter h2 {
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .newsletter p {
+            color: #dceeff;
+            margin-bottom: 20px;
+        }
+
+        .newsletter-form {
+            max-width: 500px;
+            margin: auto;
+            display: flex;
+        }
+
+        .newsletter-form input {
+            flex: 1;
+            padding: 13px;
+            border: none;
+            outline: none;
+        }
+
+        .newsletter-form button {
+            padding: 13px 22px;
+            border: none;
+            background: #16a3ff;
+            color: white;
+            cursor: pointer;
+        }
+
+        .newsletter-form button:hover {
+            background: #0877d1;
+        }
+
+        /* FOOTER */
+        footer {
+            background: #071a35;
+            color: white;
+            padding: 45px 6% 20px;
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 35px;
+            margin-bottom: 35px;
+        }
+
+        footer h3 {
+            margin-bottom: 18px;
+            color: white;
+        }
+
+        footer p,
+        footer li {
+            color: #aebed1;
+            line-height: 1.9;
+            font-size: 14px;
+        }
+
+        footer ul {
+            list-style: none;
+        }
+
+        footer li:hover {
+            color: #16a3ff;
+            cursor: pointer;
+        }
+
+        .copyright {
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #244365;
+            color: #8da3bc;
+            font-size: 13px;
+        }
+
+        /* MOBILE */
+        @media (max-width: 768px) {
+
+            .top-bar {
+                display: none;
+            }
+
+            header {
+                flex-direction: column;
+                padding: 20px;
+            }
+
+            .search {
+                width: 100%;
+            }
+
+            nav {
+                padding: 0;
+            }
+
+            nav ul {
+                justify-content: center;
+            }
+
+            nav ul li {
+                padding: 11px 9px;
+                font-size: 13px;
+            }
+
+            .hero {
+                margin: 15px;
+                padding: 30px;
+                min-height: 300px;
+            }
+
+            .hero h1 {
+                font-size: 32px;
+            }
+
+            .section {
+                margin: 30px 15px;
+            }
+
+            .header-icons {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- TOP BAR -->
+<div class="top-bar">
+    <span>Welcome to Maviya Computers</span>
+    <span>Fast Delivery • Secure Shopping • Customer Support</span>
+</div>
+
+<!-- HEADER -->
+<header>
+
+    <div class="logo">
+        Maviya<span>Computers</span>
+    </div>
+
+    <div class="search">
+        <input type="text"
+               id="searchBox"
+               placeholder="What are you looking for?">
+
+        <button onclick="searchProducts()">Search</button>
+    </div>
+
+    <div class="header-icons">
+        <span>👤 Account</span>
+
+        <span>
+            🛒 Cart
+            <b class="cart-count" id="cartCount">0</b>
+        </span>
+    </div>
+
+</header>
+
+<!-- NAVIGATION -->
+<nav>
+    <ul>
+        <li>Home</li>
+        <li>Products</li>
+        <li>Laptops</li>
+        <li>Desktop PCs</li>
+        <li>Gaming</li>
+        <li>Graphics Cards</li>
+        <li>Monitors</li>
+        <li>Accessories</li>
+        <li>Contact</li>
+    </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+
+    <div class="hero-text">
+
+        <h1>Power Your World With Technology</h1>
+
+        <p>
+            Discover laptops, computers, gaming products,
+            graphics cards, monitors and accessories at
+            Maviya Computers.
+        </p>
+
+        <button onclick="scrollToProducts()">
+            Shop Now
+        </button>
+
+    </div>
+
+</section>
+
+<!-- CATEGORIES -->
+<section class="section">
+
+    <div class="section-title">
+        <h2>Shop By Category</h2>
+        <a href="#" class="view-all">View All</a>
+    </div>
+
+    <div class="categories">
+
+        <div class="category">
+            <div class="category-icon">💻</div>
+            <h3>Laptops</h3>
+        </div>
+
+        <div class="category">
+            <div class="category-icon">🖥️</div>
+            <h3>Desktop Computers</h3>
+        </div>
+
+        <div class="category">
+            <div class="category-icon">🎮</div>
+            <h3>Gaming Products</h3>
+        </div>
+
+        <div class="category">
+            <div class="category-icon">🎨</div>
+            <h3>Graphics Cards</h3>
+        </div>
+
+        <div class="category">
+            <div class="category-icon">⌨️</div>
+            <h3>Keyboards</h3>
+        </div>
+
+        <div class="category">
+            <div class="category-icon">🖱️</div>
+            <h3>Mouse</h3>
+        </div>
+
+        <div class="category">
+            <div class="category-icon">🖥️</div>
+            <h3>Monitors</h3>
+        </div>
+
+        <div class="category">
+            <div class="category-icon">💾</div>
+            <h3>SSD & Storage</h3>
+        </div>
+
+    </div>
+
+</section>
+
+<!-- FEATURED PRODUCTS -->
+<section class="section" id="products">
+
+    <div class="section-title">
+        <h2>Featured Products</h2>
+        <a href="#" class="view-all">View All</a>
+    </div>
+
+    <div class="products">
+
+        <!-- PRODUCT 1 -->
+        <div class="product">
+
+            <span class="badge">NEW</span>
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=500&q=80"
+                     alt="Laptop">
+            </div>
+
+            <div class="product-info">
+
+                <h3>Professional Laptop 15.6 Inch</h3>
+
+                <div class="stars">★★★★★</div>
+
+                <div class="old-price">Rs. 185,000</div>
+
+                <div class="price">Rs. 169,900</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('Professional Laptop')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- PRODUCT 2 -->
+        <div class="product">
+
+            <span class="badge">SALE</span>
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1587831990711-23ca6441447b?auto=format&fit=crop&w=500&q=80"
+                     alt="Gaming PC">
+            </div>
+
+            <div class="product-info">
+
+                <h3>High Performance Gaming PC</h3>
+
+                <div class="stars">★★★★★</div>
+
+                <div class="old-price">Rs. 320,000</div>
+
+                <div class="price">Rs. 299,000</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('Gaming PC')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- PRODUCT 3 -->
+        <div class="product">
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1593640408182-31c70c8268f5?auto=format&fit=crop&w=500&q=80"
+                     alt="Monitor">
+            </div>
+
+            <div class="product-info">
+
+                <h3>27 Inch Full HD Gaming Monitor</h3>
+
+                <div class="stars">★★★★☆</div>
+
+                <div class="price">Rs. 62,900</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('Gaming Monitor')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- PRODUCT 4 -->
+        <div class="product">
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1527814050087-3793815479db?auto=format&fit=crop&w=500&q=80"
+                     alt="Gaming Mouse">
+            </div>
+
+            <div class="product-info">
+
+                <h3>RGB Gaming Mouse 8000 DPI</h3>
+
+                <div class="stars">★★★★★</div>
+
+                <div class="price">Rs. 4,500</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('Gaming Mouse')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+<!-- NEW ARRIVALS -->
+<section class="section">
+
+    <div class="section-title">
+        <h2>New Arrivals</h2>
+        <a href="#" class="view-all">View All</a>
+    </div>
+
+    <div class="products">
+
+        <!-- HEADSET -->
+        <div class="product">
+
+            <span class="badge">NEW</span>
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=500&q=80"
+                     alt="Headphones">
+            </div>
+
+            <div class="product-info">
+
+                <h3>Wireless Gaming Headset</h3>
+
+                <div class="stars">★★★★★</div>
+
+                <div class="price">Rs. 12,500</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('Gaming Headset')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- KEYBOARD -->
+        <div class="product">
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&w=500&q=80"
+                     alt="Keyboard">
+            </div>
+
+            <div class="product-info">
+
+                <h3>RGB Mechanical Gaming Keyboard</h3>
+
+                <div class="stars">★★★★★</div>
+
+                <div class="price">Rs. 9,990</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('Mechanical Keyboard')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- GRAPHICS CARD -->
+        <div class="product">
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1591488320449-011701bb6704?auto=format&fit=crop&w=500&q=80"
+                     alt="Graphics Card">
+            </div>
+
+            <div class="product-info">
+
+                <h3>Gaming Graphics Card 8GB</h3>
+
+                <div class="stars">★★★★★</div>
+
+                <div class="price">Rs. 85,000</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('Graphics Card')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- SSD -->
+        <div class="product">
+
+            <div class="product-image">
+                <img src="https://images.unsplash.com/photo-1613141411244-0e4ac259d217?auto=format&fit=crop&w=500&q=80"
+                     alt="SSD">
+            </div>
+
+            <div class="product-info">
+
+                <h3>1TB NVMe SSD High Speed</h3>
+
+                <div class="stars">★★★★☆</div>
+
+                <div class="price">Rs. 24,500</div>
+
+                <button class="add-cart"
+                        onclick="addToCart('1TB NVMe SSD')">
+                    Add To Cart
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+<!-- FEATURES -->
+<div class="features">
+
+    <div class="feature">
+
+        <div class="feature-icon">🚚</div>
+
+        <div>
+            <h3>Fast Delivery</h3>
+            <p>Quick delivery across Pakistan</p>
+        </div>
+
+    </div>
+
+    <div class="feature">
+
+        <div class="feature-icon">🔒</div>
+
+        <div>
+            <h3>Secure Shopping</h3>
+            <p>Your information is protected</p>
+        </div>
+
+    </div>
+
+    <div class="feature">
+
+        <div class="feature-icon">💳</div>
+
+        <div>
+            <h3>Easy Payment</h3>
+            <p>Convenient payment options</p>
+        </div>
+
+    </div>
+
+    <div class="feature">
+
+        <div class="feature-icon">☎️</div>
+
+        <div>
+            <h3>Customer Support</h3>
+            <p>We are here to help</p>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- NEWSLETTER -->
+<section class="newsletter">
+
+    <h2>Subscribe To Our Newsletter</h2>
+
+    <p>
+        Get the latest products, technology news and special offers.
+    </p>
+
+    <div class="newsletter-form">
+
+        <input type="email"
+               placeholder="Enter your email address">
+
+        <button>Subscribe</button>
+
+    </div>
+
+</section>
+
+<!-- FOOTER -->
+<footer>
+
+    <div class="footer-grid">
+
+        <div>
+
+            <h3>Maviya Computers</h3>
+
+            <p>
+                Your trusted destination for computers,
+                laptops, gaming products and electronic
+                accessories.
+            </p>
+
+        </div>
+
+        <div>
+
+            <h3>Products</h3>
+
+            <ul>
+                <li>Laptops</li>
+                <li>Desktop Computers</li>
+                <li>Graphics Cards</li>
+                <li>Gaming Products</li>
+                <li>Monitors</li>
+            </ul>
+
+        </div>
+
+        <div>
+
+            <h3>Customer Service</h3>
+
+            <ul>
+                <li>Contact Us</li>
+                <li>My Account</li>
+                <li>Shopping Cart</li>
+                <li>Order History</li>
+                <li>Return & Exchange</li>
+            </ul>
+
+        </div>
+
+        <div>
+
+            <h3>Contact Us</h3>
+
+            <p>📍 Karachi, Pakistan</p>
+            <p>📞 +92 300 0000000</p>
+            <p>✉️ info@maviyacomputers.com</p>
+
+        </div>
+
+    </div>
+
+    <div class="copyright">
+        © 2026 Maviya Computers. All Rights Reserved.
+    </div>
+
+</footer>
+
+<script>
+
+    let cart = 0;
+
+    function addToCart(productName) {
+
+        cart++;
+
+        document.getElementById("cartCount").innerText = cart;
+
+        alert(productName + " has been added to your cart!");
+
+    }
+
+    function scrollToProducts() {
+
+        document.getElementById("products").scrollIntoView({
+            behavior: "smooth"
+        });
+
+    }
+
+    function searchProducts() {
+
+        let search =
+            document.getElementById("searchBox").value.toLowerCase();
+
+        let products =
+            document.querySelectorAll(".product");
+
+        products.forEach(function(product) {
+
+            let name =
+                product.querySelector("h3").innerText.toLowerCase();
+
+            if (name.includes(search)) {
+
+                product.style.display = "block";
+
+            } else {
+
+                product.style.display = "none";
+
+            }
+
+        });
+
+    }
+
+</script>
+
+</body>
+</html>
+``

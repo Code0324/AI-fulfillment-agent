@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # LWA Token endpoint (same for sandbox and production)
-LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
+LWA_TOKEN_URL: str | None = None  # set from env or hardcoded once verified; see docs/
 
 # Token expiration buffer (refresh 5 minutes before expiry)
 TOKEN_EXPIRY_BUFFER_SECONDS = 300

@@ -39,3 +39,7 @@ npm-debug.log*
 
 # Backend - generated automation sandbox artifacts
 backend/screenshots/
+
+# Service account credentials
+backend/credentials/
+backend/credentials/

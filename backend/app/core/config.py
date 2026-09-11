@@ -31,13 +31,65 @@ class Settings:
     # Database (PostgreSQL async)
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/amazon_fulfillment",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/amazon_fulfillment",  # TODO: https://linear.app/issuetrackers/issue/HARD_CODED_DATABASE_DEFAULT
     )
 
+    # Amazon buyer session bootstrap (human-assisted, no password storage).
+    # The checkout automation loads this file as a Playwright storage_state
+    # when Amazon surfaces a sign-in wall. It is created by
+    # jobs.bootstrap_amazon_session and never generated automatically.
+    AMAZON_BUYER_SESSION_PATH: str = os.getenv(
+        "AMAZON_BUYER_SESSION_PATH",
+        "backend/credentials/amazon_buyer_session.json",
+    )
+
+    # -------------------------------------------------------------------
+    # Proxy Configuration for Guest Checkout (IPRoyal US-based proxy)
+    #
+    # Used by bootstrap_amazon_session.py and guest_checkout.py to route
+    # Playwright browser traffic through a US proxy, avoiding Pakistan-based
+    # IP geolocation issues. Both login bootstrap and checkout runs MUST use
+    # the same proxy to avoid Amazon suspicion (login IP ≠ checkout IP).
+    #
+    # NOTE: These use LAZY evaluation (call os.getenv() at access time, not
+    # class init time) because settings may be imported BEFORE load_dotenv()
+    # is called. Properties @property decorator ensures os.getenv() is called
+    # at runtime when the value is accessed.
+    # -------------------------------------------------------------------
+
+    @property
+    def PROXY_SERVER(self) -> str:
+        """Read PROXY_SERVER from environment at access time (lazy)."""
+        return os.getenv("PROXY_SERVER", "")
+
+    @property
+    def PROXY_USERNAME(self) -> str:
+        """Read PROXY_USERNAME from environment at access time (lazy)."""
+        return os.getenv("PROXY_USERNAME", "")
+
+    @property
+    def PROXY_PASSWORD(self) -> str:
+        """Read PROXY_PASSWORD from environment at access time (lazy)."""
+        return os.getenv("PROXY_PASSWORD", "")
+
+    @property
+    def proxy_config(self) -> dict | None:
+        """Return Playwright proxy config dict if all proxy credentials are set, else None."""
+        server = self.PROXY_SERVER
+        username = self.PROXY_USERNAME
+        password = self.PROXY_PASSWORD
+        if server and username and password:
+            return {
+                "server": server,
+                "username": username,
+                "password": password,
+            }
+        return None
+
     # JWT / Auth
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "default-dev-secret-change-in-production")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "default-dev-secret-change-in-production")  # TODO: https://linear.app/issuetrackers/issue/HARD_CODED_SECRET_DEFAULT
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))  # TODO: https://linear.app/issuetrackers/issue/HARD_CODED_JWT_DEFAULTS
 
     # CORS — localhost defaults for local development, plus any extra
     # origins supplied via ALLOWED_ORIGINS (comma-separated) for deployed
@@ -47,7 +99,7 @@ class Settings:
         f"http://localhost:{FRONTEND_PORT}",
         f"http://127.0.0.1:{FRONTEND_PORT}",
         *[origin.strip() for origin in _EXTRA_ORIGINS.split(",") if origin.strip()],
-    ]
+    ]  # TODO: https://linear.app/issuetrackers/issue/HARD_CODED_FRONTEND_URL_DEFAULTS
 
     # -------------------------------------------------------------------
     # Amazon SP-API Configuration
@@ -55,7 +107,7 @@ class Settings:
     AMAZON_LWA_CLIENT_ID: str = os.getenv("AMAZON_LWA_CLIENT_ID", "")
     AMAZON_LWA_CLIENT_SECRET: str = os.getenv("AMAZON_LWA_CLIENT_SECRET", "")
     AMAZON_LWA_REFRESH_TOKEN: str = os.getenv("AMAZON_LWA_REFRESH_TOKEN", "")
-    AMAZON_SP_API_REGION: str = os.getenv("AMAZON_SP_API_REGION", "na")
+    AMAZON_SP_API_REGION: str = os.getenv("AMAZON_SP_API_REGION", "us-east-1")
     AMAZON_MARKETPLACE_ID: str = os.getenv("AMAZON_MARKETPLACE_ID", "ATVPDKIKX0DER")
     AMAZON_ENVIRONMENT: str = os.getenv("AMAZON_ENVIRONMENT", "sandbox")
 
@@ -110,7 +162,7 @@ class Settings:
     TIKTOK_ACCESS_TOKEN: str = os.getenv("TIKTOK_ACCESS_TOKEN", "")
     TIKTOK_REFRESH_TOKEN: str = os.getenv("TIKTOK_REFRESH_TOKEN", "")
     TIKTOK_SHOP_ID: str = os.getenv("TIKTOK_SHOP_ID", "")
-    TIKTOK_ENVIRONMENT: str = os.getenv("TIKTOK_ENVIRONMENT", "sandbox")
+    TIKTOK_ENVIRONMENT: str = os.getenv("TIKTOK_ENVIRONMENT", "sandbox")  # TODO: https://linear.app/issuetrackers/issue/UNVERIFIED_TOKEN_URL
 
     # Suggestion floor for the SKU/variation fuzzy matcher (services/sku_mapping).
     # This is NOT an auto-accept threshold — a fuzzy match is never returned
@@ -163,7 +215,9 @@ class Settings:
     # -------------------------------------------------------------------
     GOOGLE_SHEETS_SPREADSHEET_ID: str = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
     GOOGLE_SHEETS_CREDENTIALS_JSON: str = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
-    GOOGLE_SHEETS_WORKSHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME", "Sheet1")
+    GOOGLE_SHEETS_WORKSHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME")
+    if not GOOGLE_SHEETS_WORKSHEET_NAME:
+        GOOGLE_SHEETS_WORKSHEET_NAME = "Orders"
 
     @property
     def is_google_sheets_configured(self) -> bool:

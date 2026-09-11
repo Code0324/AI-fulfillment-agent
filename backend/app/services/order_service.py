@@ -211,6 +211,7 @@ def _row_to_schema(row: FulfillmentOrder) -> Order:
         status=OrderStatus(row.status),
         source=row.source,
         inventory_reserved=row.inventory_reserved,
+        amazon_order_id=row.amazon_order_id,
         tiktok_order_id=row.tiktok_order_id,
         channel_metadata=row.channel_metadata,
         sheet_synced_at=row.sheet_synced_at,
@@ -397,6 +398,22 @@ async def update_sku_async(
     return _row_to_schema(row)
 
 
+async def record_fulfillment_confirmation_async(
+    db: AsyncSession, order_id: UUID, confirmation_id: str
+) -> None:
+    """Persist the supplier/Amazon confirmation ID onto the order.
+
+    The fulfillment engine is in-memory (workflows do not survive a
+    process restart), so this column is the only durable "this order was
+    actually fulfilled" marker. Callers use it to never re-purchase for
+    an order that already completed, and to refuse blindly re-running an
+    interrupted one. Only written after a workflow genuinely completes.
+    """
+    row = await _get_row(db, order_id, None)
+    row.amazon_order_id = confirmation_id
+    await db.commit()
+
+
 async def mark_sheet_synced_async(db: AsyncSession, order_id: UUID) -> None:
     """Record that this order's Google Sheet row was just written
     successfully. Called only after a real, successful Sheets API write —
@@ -492,6 +509,13 @@ class OrderService:
         async def _run() -> Order:
             async with _BridgeSessionLocal() as db:
                 return await update_status_async(db, order_id, status, organization_id)
+
+        return _run_on_bridge_loop(_run())
+
+    def record_fulfillment_confirmation(self, order_id: UUID, confirmation_id: str) -> None:
+        async def _run() -> None:
+            async with _BridgeSessionLocal() as db:
+                await record_fulfillment_confirmation_async(db, order_id, confirmation_id)
 
         return _run_on_bridge_loop(_run())
 

@@ -72,8 +72,8 @@ class AmazonOrderProvider(BaseProvider):
     def __init__(
         self,
         lwa_manager: LWATokenManager | None = None,
-        region: str = "na",
-        marketplace_id: str = "ATVPDKIKX0DER",
+        region: str | None = None,  # falls back to AMAZON_SP_API_REGION env var
+        marketplace_id: str = None,  # TODO: https://linear.app/issuetrackers/issue/HARD_CODED_MARKETPLACE_DEFAULT
         environment: str | None = None,
     ):
         """Initialize Amazon order provider.

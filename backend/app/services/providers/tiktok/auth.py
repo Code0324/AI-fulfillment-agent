@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 # NOT verified via live fetch this session — see module docstring.
 # RE-VERIFY before first production use.
-TIKTOK_TOKEN_REFRESH_URL = "https://auth.tiktok-shops.com/api/v2/token/refresh"
+TIKTOK_TOKEN_REFRESH_URL: str | None = None  # set from env or hardcoded once verified; see docs/
 
 TOKEN_EXPIRY_BUFFER_SECONDS = 300  # refresh 5 minutes before expiry
 DEFAULT_TOKEN_EXPIRY_SECONDS = 3600

@@ -79,5 +79,50 @@ def find_row(sheet_id: str, query: str) -> dict:
     return {"configured": True, "sheet_id": sheet_id, "query": query, "found": True, **match}
 
 
+@mcp.tool()
+def fetch_pending_orders(sheet_id: str) -> dict:
+    """Fetch all rows in the Orders tab where Status = Pending.
+
+    Returns a list of order dicts with row_number, order_id, buyer_name,
+    shipping fields, tiktok_sku, qty, price_paid, and status.
+    """
+    if not sheets_client.is_configured:
+        return {"configured": False, "reason": "GOOGLE_SHEETS_CREDENTIALS_PATH is unset or invalid."}
+    try:
+        orders = sheets_client.fetch_pending_orders(sheet_id)
+    except SheetsClientError as e:
+        return {"configured": True, "error": str(e)}
+    return {"configured": True, "sheet_id": sheet_id, "count": len(orders), "orders": orders}
+
+
+@mcp.tool()
+def update_order_status(
+    sheet_id: str,
+    row_number: int,
+    status: str,
+    amazon_asin_sku: str = "",
+    amazon_order_id: str = "",
+    tracking_number: str = "",
+    notes: str = "",
+) -> dict:
+    """Update a specific order row's Status and Amazon-related fields.
+
+    The row is identified by its 1-indexed row_number from fetch_pending_orders.
+    """
+    if not sheets_client.is_configured:
+        return {"configured": False, "reason": "GOOGLE_SHEETS_CREDENTIALS_PATH is unset or invalid."}
+    try:
+        result = sheets_client.update_order_status(
+            sheet_id, row_number, status,
+            amazon_asin_sku=amazon_asin_sku,
+            amazon_order_id=amazon_order_id,
+            tracking_number=tracking_number,
+            notes=notes,
+        )
+    except SheetsClientError as e:
+        return {"configured": True, "error": str(e)}
+    return {"configured": True, "sheet_id": sheet_id, "row_number": row_number, "result": result}
+
+
 if __name__ == "__main__":
     mcp.run()

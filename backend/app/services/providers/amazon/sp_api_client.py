@@ -106,8 +106,9 @@ class SPAPIClient:
     def __init__(
         self,
         lwa_manager: LWATokenManager,
-        region: str = "na",
-        marketplace_id: str = "ATVPDKIKX0DER",  # US marketplace
+        region: str | None = None,  # falls back to AMAZON_SP_API_REGION env var
+        marketplace_id: str | None = None,  # falls back to AMAZON_MARKETPLACE_ID env var
+        marketplace_id: str = None,  # TODO: https://linear.app/issuetrackers/issue/HARD_CODED_MARKETPLACE_DEFAULT
         environment: str = "sandbox",
     ):
         """Initialize SP-API client.

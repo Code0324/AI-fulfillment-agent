@@ -48,8 +48,8 @@ logger = logging.getLogger(__name__)
 # sandbox/production split here exists to preserve this codebase's
 # existing safety property (never silently call production without an
 # explicit environment flag), not because TikTok documents two domains.
-PRODUCTION_BASE_URL = "https://open-api.tiktokglobalshop.com"
-SANDBOX_BASE_URL = "https://open-api.tiktokglobalshop.com"  # see note above — same domain, gated by _validate_endpoint below
+PRODUCTION_BASE_URL: str | None = None  # set from env or hardcoded once verified; see docs/
+SANDBOX_BASE_URL: str | None = None  # set from env or hardcoded once verified; see docs/
 
 ORDER_API_VERSION = "202309"  # corroborated via TikTok's own doc URLs
 

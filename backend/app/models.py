@@ -269,9 +269,9 @@ class AmazonAccount(Base):
 
     # Amazon seller identification
     seller_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    marketplace_id: Mapped[str] = mapped_column(String(50), nullable=False, default="ATVPDKIKX0DER")
+    marketplace_id: Mapped[str] = mapped_column(String(50), nullable=False)  # set per-client from AMAZON_MARKETPLACE_ID
     marketplace_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # e.g. "US", "UK"
-    region: Mapped[str] = mapped_column(String(10), nullable=False, default="na")
+    region: Mapped[str] = mapped_column(String(10), nullable=False)  # set per-client from AMAZON_SP_API_REGION
 
     # LWA credentials (encrypted at rest in production)
     lwa_client_id: Mapped[str] = mapped_column(String(255), nullable=False)

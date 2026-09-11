@@ -64,6 +64,15 @@ class Order(BaseModel):
         default="MANUAL", description="Order source: MANUAL, AMAZON, MOCK_AMAZON, or TIKTOK"
     )
     inventory_reserved: bool = Field(default=False, description="Whether inventory has been reserved")
+    amazon_order_id: str | None = Field(
+        None,
+        description=(
+            "Supplier/Amazon confirmation ID once fulfillment has actually "
+            "completed for this order — the durable 'already fulfilled' marker. "
+            "Empty means no completed confirmation exists (fresh order, or an "
+            "interrupted run whose outcome is unknown)."
+        ),
+    )
     tiktok_order_id: str | None = Field(None, description="TikTok Shop's own order ID, set for TIKTOK-sourced orders")
     channel_metadata: dict | None = Field(
         None,
