@@ -38,6 +38,7 @@ import logging
 import os
 import sys
 import textwrap
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -178,63 +179,37 @@ def run_bootstrap() -> Path:
 
     from playwright.sync_api import sync_playwright
 
-    attempt = 0
-    while attempt < MAX_LOGIN_ATTEMPTS:
-        attempt += 1
-        logger.info(
-            textwrap.dedent(
-                f"""
-                ==================================================================
-                AMAZON SESSION BOOTSTRAP -- ATTEMPT {attempt} of {MAX_LOGIN_ATTEMPTS}
-                ==================================================================
+    # Launch Playwright ONCE for all retry attempts
+    # This keeps the browser open across retries
+    browser = None
+    context = None
 
-                A headed browser will now open to:
-
-                    {SIGNIN_URL}
-
-                INSTRUCTIONS FOR THE OPERATOR
-                ------------------------------
-                1. Log in to the Amazon account you want the checkout automation
-                   to use (email + password).
-                2. Complete any 2FA / OTP / SMS / authenticator prompt that
-                   Amazon shows.
-                3. If Amazon shows any "Stay signed in?" / "Save device" / "Try
-                   another way" prompts, complete them too.
-                4. After login, Amazon may redirect you to the homepage or a
-                   recommendations page. That is expected.
-                5. Come back to this terminal and press Enter once you are
-                   confident you are logged in.
-
-                IMPORTANT:
-                - Do NOT log out of the browser after this.
-                - Do NOT clear cookies / site data for amazon.com.
-                - The automation will reuse this session via a saved storage_state
-                  file. Treat that file as sensitive.
-                """
-            ).strip()
-        )
-
-        input("Press Enter once you're logged in and on the Amazon homepage... ")
-
+    try:
         with sync_playwright() as pw:
-            # DEBUG: Print proxy config before launch
-            logger.info("\n[DEBUG] Proxy config at runtime:")
-            if settings.proxy_config:
-                logger.info("  Server: %s", settings.proxy_config.get("server"))
-                logger.info("  Username: %s", settings.proxy_config.get("username"))
-                logger.info("  Password: %s", "***" if settings.proxy_config.get("password") else "(empty)")
-            else:
-                logger.error("  [ERROR] proxy_config is None or empty!")
+            # Launch the browser BEFORE asking user for input
+            logger.info("\n" + "=" * 72)
+            logger.info("LAUNCHING BROWSER")
+            logger.info("=" * 72)
 
-            browser = pw.chromium.launch(
-                headless=False,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                ],
-                proxy=settings.proxy_config,
-            )
+            try:
+                browser = pw.chromium.launch(
+                    headless=False,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        # Removed: --no-sandbox (Linux-only, not needed on Windows)
+                        # Removed: --disable-dev-shm-usage (Linux-only, not needed on Windows)
+                    ],
+                    proxy=settings.proxy_config,
+                )
+                logger.info("✓ Browser launched successfully")
+            except Exception as e:
+                logger.error("\n✗ FATAL: Failed to launch browser")
+                logger.error("Exception type: %s", type(e).__name__)
+                logger.error("Exception message: %s", str(e))
+                logger.error("\nFull traceback:")
+                traceback.print_exc()
+                raise
+
             try:
                 context = browser.new_context(
                     viewport={"width": 1366, "height": 900},
@@ -246,49 +221,149 @@ def run_bootstrap() -> Path:
                     locale="en-US",
                     timezone_id="America/New_York",
                 )
+                logger.info("✓ Browser context created successfully")
+
+                # Add event listeners to detect close/crash events
+                def on_browser_disconnect():
+                    print("\n!!! BROWSER DISCONNECTED !!!\n")
+                    logger.error("!!! BROWSER DISCONNECTED !!!")
+
+                def on_context_close():
+                    print("\n!!! CONTEXT CLOSED !!!\n")
+                    logger.error("!!! CONTEXT CLOSED !!!")
+
+                browser.on("disconnected", on_browser_disconnect)
+                context.on("close", on_context_close)
+                logger.info("✓ Event listeners installed")
+
+            except Exception as e:
+                logger.error("\n✗ FATAL: Failed to create browser context")
+                logger.error("Exception type: %s", type(e).__name__)
+                logger.error("Exception message: %s", str(e))
+                logger.error("\nFull traceback:")
+                traceback.print_exc()
+                raise
+
+            # Create ONE page that persists across all retry attempts
+            try:
+                page = context.new_page()
+
+                def on_page_close():
+                    print("\n!!! PAGE CLOSED !!!\n")
+                    logger.error("!!! PAGE CLOSED !!!")
+
+                def on_page_crash():
+                    print("\n!!! PAGE CRASHED !!!\n")
+                    logger.error("!!! PAGE CRASHED !!!")
+
+                page.on("close", on_page_close)
+                page.on("crash", on_page_crash)
+                logger.info("✓ Page created with event listeners")
+
+                # Navigate to Amazon signin IMMEDIATELY
+                logger.info("Navigating to Amazon signin page: %s", SIGNIN_URL)
+                page.goto(SIGNIN_URL, timeout=60000, wait_until="domcontentloaded")
+                logger.info("✓ Signin page loaded")
+
+            except Exception as e:
+                logger.error("\n✗ FATAL: Failed to create page or navigate to signin")
+                logger.error("Exception type: %s", type(e).__name__)
+                logger.error("Exception message: %s", str(e))
+                logger.error("\nFull traceback:")
+                traceback.print_exc()
+                raise
+
+            # NOW the browser is open with the signin page ready - enter the retry loop
+            attempt = 0
+            while attempt < MAX_LOGIN_ATTEMPTS:
+                attempt += 1
+
+                logger.info("")
+                logger.info("=" * 72)
+                logger.info("ATTEMPT %d of %d", attempt, MAX_LOGIN_ATTEMPTS)
+                logger.info("=" * 72)
+
+                if attempt == 1:
+                    logger.info(
+                        textwrap.dedent(
+                            f"""
+                            The browser is OPEN. Amazon's sign-in page should be visible.
+
+                            INSTRUCTIONS:
+                            1. Log in with your email + password
+                            2. Complete 2FA/OTP if Amazon prompts for it
+                            3. Wait for redirect to the Amazon homepage
+                            4. When you're logged in and on the homepage, return to this terminal
+                            5. Press Enter below to verify login
+
+                            DO NOT:
+                            - Close the browser window
+                            - Log out
+                            - Clear cookies or site data
+                            """
+                        ).strip()
+                    )
+                else:
+                    logger.warning(
+                        textwrap.dedent(
+                            f"""
+                            Previous attempt did not detect a logged-in session.
+                            The browser is still open showing the current page.
+
+                            Next steps:
+                            - If you're still on a sign-in or 2FA page: complete login now
+                            - If you're on the homepage: you're good
+                            - Use the browser's back button if needed
+
+                            Once ready, return here and press Enter to verify again.
+                            """
+                        ).strip()
+                    )
+
+                # ✓ NOW ask for input while browser is OPEN
+                # Log page count and state before asking for input
+                open_pages = len(context.pages)
+                logger.info("\n[DEBUG] Open pages in context: %d", open_pages)
+                if open_pages > 0:
+                    logger.info("[DEBUG] Current page URL: %s", page.url)
+
+                input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Press Enter once logged in... ")
+
                 try:
-                    page = context.new_page()
-
-                    # DEBUG: Verify proxy is actually working by checking ipinfo.io
-                    logger.info("\n[DEBUG] Verifying proxy by checking ipinfo.io in THIS browser instance...")
-                    try:
-                        page.goto("https://ipinfo.io/json", timeout=30000, wait_until="domcontentloaded")
-                        page.wait_for_timeout(2000)
-                        import json as json_module
-                        content = page.content()
-                        start = content.find("{")
-                        end = content.rfind("}") + 1
-                        if start >= 0 and end > start:
-                            json_str = content[start:end]
-                            ipinfo_data = json_module.loads(json_str)
-                            logger.info("[DEBUG] ipinfo.io response:")
-                            logger.info("  IP: %s", ipinfo_data.get("ip"))
-                            logger.info("  Country: %s", ipinfo_data.get("country"))
-                            logger.info("  City: %s", ipinfo_data.get("city"))
-                            logger.info("  Region: %s", ipinfo_data.get("region"))
-                            country = ipinfo_data.get("country", "").upper()
-                            if country == "US":
-                                logger.info("[DEBUG] ✓ SUCCESS - Browser IS using US proxy!")
-                            else:
-                                logger.error("[DEBUG] ✗ FAILED - Browser is NOT using US proxy (country: %s)", country)
-                        else:
-                            logger.warning("[DEBUG] Could not parse JSON from ipinfo.io")
-                    except Exception as e:
-                        logger.warning("[DEBUG] ipinfo.io check failed: %s", e)
-
-                    # Navigate to Amazon homepage and let it settle.
-                    logger.info("\nNavigating to %s", HOMEPAGE_URL)
+                    # Navigate to Amazon homepage to verify login and let it settle.
+                    logger.info("\nNavigating to Amazon homepage: %s", HOMEPAGE_URL)
                     page.goto(HOMEPAGE_URL, timeout=60000, wait_until="domcontentloaded")
                     page.wait_for_timeout(6000)
 
-                    logger.info("Verifying session looks logged in...")
+                    # Log the current page state for debugging
+                    current_url = page.url
+                    page_text = "(unable to read)"
+                    try:
+                        page_text = page.inner_text("body")[:500]
+                    except Exception as e:
+                        logger.warning("Could not read page text: %s", type(e).__name__)
+
+                    logger.info("\n" + "=" * 72)
+                    logger.info("VERIFICATION CHECK")
+                    logger.info("=" * 72)
+                    logger.info("Current URL: %s", current_url)
+                    logger.info("Page content (first 500 chars):")
+                    logger.info(page_text)
+                    logger.info("=" * 72)
+
+                    logger.info("\nVerifying session looks logged in...")
                     if _verify_logged_in(page):
-                        logger.info("Session looks logged in.")
+                        logger.info("✓ Session looks logged in!")
                     else:
                         logger.warning(
-                            "Could not confirm a logged-in session. "
-                            "The page may still be on a sign-in wall or an "
-                            "intermediate prompt. Let's try again."
+                            "✗ Could not detect logged-in session.\n"
+                            "  Possible reasons:\n"
+                            "  - Sign-in page is still showing\n"
+                            "  - 2FA prompt is still active\n"
+                            "  - Page is stuck on an intermediate prompt\n"
+                            "  - Browser back-button may be needed\n\n"
+                            "Attempt %d of %d will try again...",
+                            attempt, MAX_LOGIN_ATTEMPTS
                         )
                         continue
 
@@ -305,20 +380,39 @@ def run_bootstrap() -> Path:
                     )
                     return Path(SESSION_FILE)
 
-                finally:
-                    context.close()
-            finally:
-                browser.close()
+                except Exception as e:
+                    # Don't close page here - we're using it for next retry attempt
+                    logger.error("\n✗ ERROR during verification (attempt %d):", attempt)
+                    logger.error("Exception type: %s", type(e).__name__)
+                    logger.error("Exception message: %s", str(e))
+                    logger.error("\nFull traceback:")
+                    traceback.print_exc()
+                    logger.warning("Will retry with same page...")
+                    continue
 
-    # If we get here, all attempts failed.
-    logger.error(
-        "Could not bootstrap a logged-in Amazon session after %d attempt(s). "
-        "Do not run the checkout automation yet -- it will fail with an "
-        "'Amazon session expired or missing' error until you successfully "
-        "run this script.",
-        MAX_LOGIN_ATTEMPTS,
-    )
-    sys.exit(1)
+            # If we get here, all attempts failed.
+            logger.error(
+                "\n" + "=" * 72
+            )
+            logger.error(
+                "Could not bootstrap a logged-in Amazon session after %d attempt(s).",
+                MAX_LOGIN_ATTEMPTS,
+            )
+            logger.error(
+                "Do not run the checkout automation yet -- it will fail with an "
+                "'Amazon session expired or missing' error until you successfully "
+                "run this script."
+            )
+            logger.error("=" * 72)
+            sys.exit(1)
+
+    except Exception as e:
+        logger.error("\n✗ FATAL ERROR (outer scope):")
+        logger.error("Exception type: %s", type(e).__name__)
+        logger.error("Exception message: %s", str(e))
+        logger.error("\nFull traceback:")
+        traceback.print_exc()
+        sys.exit(1)
 
 
 def main() -> None:
