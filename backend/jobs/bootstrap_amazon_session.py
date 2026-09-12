@@ -468,18 +468,41 @@ def run_bootstrap() -> Path:
                         ).strip()
                     )
 
-                # ✓ NOW ask for input while browser is OPEN
-                # Log page count and state before asking for input
+                # ✓ NOW wait for user to complete login while browser is OPEN
+                # Log page count and state
                 open_pages = len(context.pages)
                 logger.info("\n[DEBUG] Open pages in context: %d", open_pages)
                 if open_pages > 0:
                     logger.info("[DEBUG] Current page URL: %s", page.url)
 
-                # Take screenshot before the input prompt
-                logger.info("Taking screenshot before attempt %d prompt...", attempt)
+                # Take screenshot before waiting
+                logger.info("Taking screenshot before attempt %d...", attempt)
                 _take_screenshot(page, f"bootstrap_attempt_{attempt}.png")
 
-                input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Press Enter once logged in... ")
+                # Try to get input from user (works in interactive terminals)
+                # If no stdin available, just wait for auto-detection
+                try:
+                    input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Press Enter once logged in... ")
+                except EOFError:
+                    # Non-interactive mode: wait longer and auto-detect login
+                    logger.info("\n[Attempt %d/%d] Running in non-interactive mode - auto-detecting login...", attempt, MAX_LOGIN_ATTEMPTS)
+                    logger.info("Waiting up to 180 seconds for manual login completion...")
+
+                    # Wait and check every 5 seconds if page has returned to homepage
+                    for wait_count in range(36):  # 180 seconds / 5 seconds = 36 checks
+                        page.wait_for_timeout(5000)
+                        current_url = page.url
+
+                        if "signin" not in current_url.lower():
+                            logger.info("✓ Detected navigation away from signin page!")
+                            logger.info("Current URL: %s", current_url)
+                            break
+
+                        remaining = 180 - (wait_count * 5)
+                        if remaining % 30 == 0:
+                            logger.info("Still waiting... %d seconds remaining", remaining)
+
+                    logger.info("Auto-detection phase complete")
 
                 try:
                     # Navigate to Amazon homepage to verify login and let it settle.
