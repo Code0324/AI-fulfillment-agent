@@ -479,14 +479,39 @@ def run_bootstrap() -> Path:
                 logger.info("Taking screenshot before attempt %d...", attempt)
                 _take_screenshot(page, f"bootstrap_attempt_{attempt}.png")
 
+                # DEBUG: Check page state for signin
+                try:
+                    email_value = page.input_value("#ap_email_login", timeout=2000)
+                    logger.info("[DEBUG] Email field value: %s", "***FILLED***" if email_value else "EMPTY")
+                except Exception:
+                    logger.info("[DEBUG] Could not read email field")
+
+                try:
+                    continue_btn = page.locator("#continue")
+                    is_enabled = continue_btn.is_enabled(timeout=1000)
+                    logger.info("[DEBUG] Continue button enabled: %s", is_enabled)
+                except Exception as e:
+                    logger.warning("[DEBUG] Could not check Continue button: %s", str(e))
+
                 # Try to get input from user (works in interactive terminals)
                 # If no stdin available, just wait for auto-detection
                 try:
-                    input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Press Enter once logged in... ")
+                    input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Instructions:\n"
+                          "1. FILL EMAIL/PHONE field with your Amazon email or phone\n"
+                          "2. Click CONTINUE button\n"
+                          "3. FILL PASSWORD field\n"
+                          "4. Complete 2FA/OTP if prompted\n"
+                          "5. When on homepage, press Enter here...\n")
                 except EOFError:
                     # Non-interactive mode: wait longer and auto-detect login
                     logger.info("\n[Attempt %d/%d] Running in non-interactive mode - auto-detecting login...", attempt, MAX_LOGIN_ATTEMPTS)
-                    logger.info("Waiting up to 180 seconds for manual login completion...")
+                    logger.info("\nSTEPS:")
+                    logger.info("1. FILL the email/phone field")
+                    logger.info("2. Click the CONTINUE button")
+                    logger.info("3. FILL the password field")
+                    logger.info("4. Complete 2FA/OTP if prompted")
+                    logger.info("5. Wait for redirect to Amazon homepage")
+                    logger.info("\nWaiting up to 180 seconds for manual login completion...")
 
                     # Wait and check every 5 seconds if page has returned to homepage
                     for wait_count in range(36):  # 180 seconds / 5 seconds = 36 checks
