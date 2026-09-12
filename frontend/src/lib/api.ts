@@ -918,6 +918,27 @@ export async function retryFulfillment(
   }
 }
 
+export async function checkoutWorkflow(
+  workflowId: string,
+  dryRun: boolean = false,
+): Promise<{ ok: true; data: FulfillmentWorkflow } | { ok: false; error: string }> {
+  try {
+    const url = new URL(`${fulfillmentApiBase()}/${workflowId}/checkout`, window.location.origin);
+    if (dryRun) url.searchParams.set("dry_run", "true");
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: jsonHeaders(),
+    });
+    const body: unknown = await res.json();
+    if (!res.ok || isApiError(body)) {
+      return { ok: false, error: isApiError(body) ? body.error : `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body as FulfillmentWorkflow };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Providers
 // ---------------------------------------------------------------------------

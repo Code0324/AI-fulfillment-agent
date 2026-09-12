@@ -191,6 +191,27 @@ async def retry_workflow(
     return fulfillment_engine.retry_workflow(workflow_id)
 
 
+@router.post(
+    "/{workflow_id}/checkout",
+    response_model=FulfillmentWorkflow,
+    dependencies=[Depends(require_permission("fulfillment:execute"))],
+)
+async def checkout_workflow(
+    workflow_id: UUID,
+    dry_run: bool = Query(False, description="Dry-run mode: validate flow without placing real order"),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_db),
+) -> FulfillmentWorkflow:
+    """Execute Amazon buyer checkout for an approved workflow.
+
+    NOTE: Requires approval gate (workflow.status == "approved").
+    Dry-run mode validates the checkout flow without actually placing the order on Amazon.
+    The buyer account is currently locked due to failed login attempts — use dry-run to test flow logic.
+    """
+    await _verify_workflow_ownership(db, workflow_id, organization)
+    return fulfillment_engine.checkout_workflow(workflow_id, dry_run=dry_run)
+
+
 @router.get(
     "/{workflow_id}/audit",
     response_model=FulfillmentAuditResponse,

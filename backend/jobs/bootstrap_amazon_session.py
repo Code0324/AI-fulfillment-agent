@@ -496,12 +496,162 @@ def run_bootstrap() -> Path:
                 # Try to get input from user (works in interactive terminals)
                 # If no stdin available, just wait for auto-detection
                 try:
-                    input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Instructions:\n"
-                          "1. FILL EMAIL/PHONE field with your Amazon email or phone\n"
-                          "2. Click CONTINUE button\n"
-                          "3. FILL PASSWORD field\n"
-                          "4. Complete 2FA/OTP if prompted\n"
-                          "5. When on homepage, press Enter here...\n")
+                    email_or_phone = input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Enter your Amazon email or phone number\n(Leave blank to use auto-fill test mode): ").strip()
+
+                    if email_or_phone:
+                        logger.info("You entered: %s", "***MASKED***" if "@" in email_or_phone else email_or_phone)
+                        logger.info("Auto-filling email field and clicking Continue button...")
+
+                        # Find and fill the email field
+                        try:
+                            for email_id in ["ap_email_login", "ap_email"]:
+                                try:
+                                    email_field = page.locator(f"#{email_id}")
+                                    if email_field.is_visible(timeout=2000):
+                                        email_field.fill(email_or_phone)
+                                        logger.info("✓ Filled email field with ID: #%s", email_id)
+                                        break
+                                except Exception:
+                                    pass
+                        except Exception as e:
+                            logger.warning("✗ Could not fill email field: %s", str(e))
+
+                        # Wait a moment for the field to register
+                        page.wait_for_timeout(1500)
+
+                        # Click the Continue button
+                        try:
+                            continue_btn = page.locator("#continue")
+                            if continue_btn.is_visible(timeout=2000):
+                                continue_btn.click()
+                                logger.info("✓ Clicked Continue button")
+                                page.wait_for_timeout(2000)
+                            else:
+                                logger.warning("⚠ Continue button not visible, user will need to click manually")
+                        except Exception as e:
+                            logger.warning("⚠ Could not click Continue button automatically: %s", str(e))
+
+                        # Wait for page to load (handle stuck/loading state)
+                        logger.info("\n⏳ Waiting for next page to load...")
+                        page_loaded = False
+                        for wait_attempt in range(30):  # Try for up to 30 seconds
+                            try:
+                                # Check if we're on password, OTP, or any signin variant
+                                if page.locator("#ap_password").is_visible(timeout=1000):
+                                    logger.info("✓ Password field appeared!")
+                                    page_loaded = True
+                                    break
+                            except Exception:
+                                pass
+
+                            try:
+                                # Check for OTP field (multiple selectors for different Amazon variants)
+                                otp_selectors = [
+                                    'input[type="tel"]',
+                                    'input[placeholder*="OTP"]',
+                                    'input[placeholder*="code"]',
+                                    'input[placeholder*="digit"]',
+                                    'input[id*="otp"]',
+                                    'input[id*="verification"]'
+                                ]
+                                for selector in otp_selectors:
+                                    try:
+                                        if page.locator(selector).is_visible(timeout=500):
+                                            logger.info("✓ OTP field appeared!")
+                                            page_loaded = True
+                                            break
+                                    except Exception:
+                                        pass
+                                if page_loaded:
+                                    break
+                            except Exception:
+                                pass
+
+                            # Check if page is still loading or stuck
+                            if wait_attempt % 5 == 0:
+                                logger.info("  [%d/30] Still waiting for page to load...", wait_attempt)
+
+                            page.wait_for_timeout(1000)
+
+                        if not page_loaded:
+                            logger.warning("⚠ Page didn't load after 30 seconds - may be stuck")
+                            logger.info("Attempting to refresh page...")
+                            page.reload(wait_until="domcontentloaded")
+                            page.wait_for_timeout(3000)
+                            logger.info("Page refreshed")
+
+                        # Now prompt for next action
+                        logger.info("\n" + "="*72)
+                        logger.info("2FA VERIFICATION REQUIRED")
+                        logger.info("="*72)
+
+                        try:
+                            if page.locator("#ap_password").is_visible(timeout=2000):
+                                logger.info("\n🔐 Password field is ready.")
+                                logger.info("Please enter your Amazon password in the browser.")
+                                logger.info("After entering password, 2FA may be triggered.")
+                                input("\nPress Enter when you've entered password and completed any 2FA...")
+                            else:
+                                # Check for OTP
+                                logger.info("\n📱 OTP Verification Required!")
+                                logger.info("You should have received an OTP code on your phone.")
+                                otp_code = input("\nEnter the 6-digit OTP code: ").strip()
+
+                                if otp_code:
+                                    logger.info("Entering OTP code...")
+                                    otp_selectors = [
+                                        'input[type="tel"]',
+                                        'input[placeholder*="OTP"]',
+                                        'input[placeholder*="code"]',
+                                        'input[placeholder*="digit"]',
+                                        'input[id*="otp"]',
+                                        'input[id*="verification"]'
+                                    ]
+
+                                    otp_entered = False
+                                    for selector in otp_selectors:
+                                        try:
+                                            field = page.locator(selector)
+                                            if field.is_visible(timeout=1000):
+                                                field.fill(otp_code)
+                                                logger.info("✓ OTP code entered")
+                                                page.wait_for_timeout(1000)
+
+                                                # Look for submit button
+                                                try:
+                                                    submit_btn = page.locator('button:has-text("Verify"), button:has-text("Submit"), button:has-text("Continue")')
+                                                    if submit_btn.is_visible(timeout=2000):
+                                                        submit_btn.click()
+                                                        logger.info("✓ Clicked verification button")
+                                                        page.wait_for_timeout(3000)
+                                                except Exception:
+                                                    logger.info("⚠ Could not find submit button, user may need to click manually")
+
+                                                otp_entered = True
+                                                break
+                                        except Exception:
+                                            pass
+
+                                    if not otp_entered:
+                                        logger.warning("⚠ Could not find OTP field to fill")
+
+                                    logger.info("\nWaiting for redirect to homepage...")
+                                    input("Press Enter when you're on the Amazon homepage...")
+                                else:
+                                    logger.info("No OTP provided, waiting manually...")
+                                    input("Press Enter when you've completed 2FA and are on the homepage...")
+                        except Exception as e:
+                            logger.warning("Exception during 2FA handling: %s", str(e))
+                            logger.info("Please complete 2FA manually in the browser.")
+                            input("Press Enter when you're on the Amazon homepage...")
+                    else:
+                        logger.info("Blank input - waiting for manual login...")
+                        input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Instructions:\n"
+                              "1. FILL EMAIL/PHONE field with your Amazon email or phone\n"
+                              "2. Click CONTINUE button\n"
+                              "3. FILL PASSWORD field\n"
+                              "4. Complete 2FA/OTP if prompted\n"
+                              "5. When on homepage, press Enter here...\n")
                 except EOFError:
                     # Non-interactive mode: wait longer and auto-detect login
                     logger.info("\n[Attempt %d/%d] Running in non-interactive mode - auto-detecting login...", attempt, MAX_LOGIN_ATTEMPTS)

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   approveFulfillment,
   cancelFulfillment,
+  checkoutWorkflow,
   fetchFulfillmentWorkflows,
   fetchOrders,
   rejectFulfillment,
@@ -166,6 +167,8 @@ export default function FulfillmentWorkflowComponent() {
   const [selectedOrder, setSelectedOrder] = useState<string>("");
   const [shippingMethod, setShippingMethod] = useState("standard");
   const [expandedWorkflow, setExpandedWorkflow] = useState<string | null>(null);
+  const [checkingOut, setCheckingOut] = useState<string | null>(null);
+  const [dryRunMode, setDryRunMode] = useState(false);
 
   // ---------------------------------------------------------------
   // Load data
@@ -253,6 +256,20 @@ export default function FulfillmentWorkflowComponent() {
     }
   }
 
+  async function handleCheckout(workflowId: string) {
+    setCheckingOut(workflowId);
+    setError(null);
+    const result = await checkoutWorkflow(workflowId, dryRunMode);
+    if (result.ok) {
+      setWorkflows((prev) =>
+        prev.map((w) => (w.id === workflowId ? result.data : w))
+      );
+    } else {
+      setError(result.error);
+    }
+    setCheckingOut(null);
+  }
+
   // ---------------------------------------------------------------
   // Render helpers
   // ---------------------------------------------------------------
@@ -333,6 +350,25 @@ export default function FulfillmentWorkflowComponent() {
       <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-800 font-medium text-center">
         📦 SANDBOX — SYNTHETIC DATA ONLY — NO REAL AMAZON OR SUPPLIER CONNECTION
       </div>
+
+      {/* Pending approvals banner */}
+      {workflows.filter((w) => w.status === "waiting_approval").length > 0 && (
+        <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg px-4 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-lg">⚠️</span>
+            <span className="font-semibold text-yellow-800">
+              {workflows.filter((w) => w.status === "waiting_approval").length}{" "}
+              {workflows.filter((w) => w.status === "waiting_approval").length === 1
+                ? "order"
+                : "orders"}{" "}
+              awaiting approval
+            </span>
+          </div>
+          <p className="text-xs text-yellow-700">
+            Review the details below and approve to proceed with Amazon checkout, or reject to cancel.
+          </p>
+        </div>
+      )}
 
       {/* Start fulfillment */}
       <div className="bg-white border border-gray-200 rounded-lg p-5">
@@ -502,13 +538,25 @@ export default function FulfillmentWorkflowComponent() {
                             onClick={() => handleApprove(wf.id)}
                             className="px-3 py-1.5 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700 transition-colors"
                           >
-                            Approve
+                            ✓ Approve & Continue
                           </button>
                           <button
                             onClick={() => handleReject(wf.id)}
                             className="px-3 py-1.5 rounded text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
                           >
                             Reject
+                          </button>
+                        </>
+                      )}
+                      {wf.status === "approved" && (
+                        <>
+                          <button
+                            onClick={() => handleCheckout(wf.id)}
+                            disabled={checkingOut === wf.id}
+                            className="px-3 py-1.5 rounded text-xs font-medium text-white bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 transition-colors"
+                            title="Place order on Amazon (dry-run mode disabled)"
+                          >
+                            {checkingOut === wf.id ? "Checking out…" : "🛒 Place Order on Amazon"}
                           </button>
                         </>
                       )}
