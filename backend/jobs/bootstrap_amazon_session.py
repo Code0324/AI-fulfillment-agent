@@ -87,7 +87,7 @@ SESSION_FILE = _resolve_repo_path(
     "backend/credentials/amazon_buyer_session.json",
 )
 CREDENTIALS_DIR = os.path.dirname(SESSION_FILE)
-SIGNIN_URL = "https://www.amazon.com/ap/signin"
+SCREENSHOTS_DIR = os.path.normpath(os.path.join(_REPO_ROOT, "backend/screenshots"))
 HOMEPAGE_URL = "https://www.amazon.com/"
 
 # How many login attempts we allow before giving up.
@@ -161,6 +161,17 @@ def _verify_logged_in(page: Any) -> bool:
     if _is_sign_in_page(page):
         return False
     return _page_has_account_greeting(page)
+
+
+def _take_screenshot(page: Any, filename: str) -> None:
+    """Capture a screenshot and save it to backend/screenshots/."""
+    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+    filepath = os.path.join(SCREENSHOTS_DIR, filename)
+    try:
+        page.screenshot(path=filepath)
+        logger.info("✓ Screenshot saved: %s", filepath)
+    except Exception as e:
+        logger.warning("✗ Failed to take screenshot: %s", str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -260,10 +271,99 @@ def run_bootstrap() -> Path:
                 page.on("crash", on_page_crash)
                 logger.info("✓ Page created with event listeners")
 
-                # Navigate to Amazon signin IMMEDIATELY
-                logger.info("Navigating to Amazon signin page: %s", SIGNIN_URL)
-                page.goto(SIGNIN_URL, timeout=60000, wait_until="domcontentloaded")
-                logger.info("✓ Signin page loaded")
+                # Navigate to Amazon homepage first
+                logger.info("Navigating to Amazon homepage: %s", HOMEPAGE_URL)
+                page.goto(HOMEPAGE_URL, timeout=60000, wait_until="domcontentloaded")
+                logger.info("✓ Homepage loaded")
+
+                # Wait for WAF challenge if present
+                page_html = page.content()
+                if "AwsWafIntegration" in page_html or "challenge" in page_html.lower():
+                    logger.warning("⚠ WAF challenge page detected, waiting for it to complete...")
+                    page.wait_for_timeout(5000)
+                    # Wait for navigation after WAF completion
+                    try:
+                        page.wait_for_url("https://www.amazon.com/", timeout=15000)
+                        logger.info("✓ WAF challenge completed, homepage loaded")
+                    except Exception:
+                        logger.warning("⚠ URL didn't match expected, but continuing...")
+                    page.wait_for_timeout(3000)
+                else:
+                    page.wait_for_timeout(2000)
+
+                # DEBUG: Dump the page HTML to inspect structure
+                try:
+                    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+
+                    # Get full page HTML
+                    page_html = page.content()
+                    nav_dump_path = os.path.join(SCREENSHOTS_DIR, "nav-bar-html.txt")
+                    with open(nav_dump_path, "w", encoding="utf-8") as f:
+                        f.write(page_html)
+                    logger.info("✓ Full page HTML dumped to: %s", nav_dump_path)
+                    logger.info("File size: %d bytes", len(page_html))
+
+                    # Also check if this is still a WAF page
+                    if "challenge-container" in page_html or "AwsWafIntegration" in page_html:
+                        logger.error("✗ Still on WAF challenge page after waiting!")
+                except Exception as e:
+                    logger.warning("✗ Could not dump HTML: %s", str(e))
+
+                # Find and click the Sign In button/link
+                # The account menu has a button to expand the dropdown
+                logger.info("Looking for Account menu to expand dropdown...")
+                try:
+                    # Find the expand button (arrow) next to Account & Lists
+                    expand_button = page.locator("#nav-link-accountList .nav-flyout-button")
+
+                    if not expand_button.is_visible():
+                        raise Exception("#nav-link-accountList expand button not visible")
+
+                    # Click the expand button to open the dropdown
+                    expand_button.click()
+                    logger.info("✓ Clicked account menu expand button")
+                    page.wait_for_timeout(1500)
+
+                    # Find the "Sign in" button inside the dropdown
+                    # It has class "nav-action-signin-button"
+                    sign_in_button = page.locator(".nav-action-signin-button")
+                    if not sign_in_button.is_visible():
+                        raise Exception("Could not find visible '.nav-action-signin-button'")
+
+                    # Get the href to click directly to signin
+                    sign_in_button.click()
+                    logger.info("✓ Clicked Sign In button")
+                    page.wait_for_timeout(2000)
+
+                except Exception as e:
+                    logger.error("✗ FATAL: Failed to click Sign In button")
+                    logger.error("Exception: %s", str(e))
+                    _take_screenshot(page, "bootstrap_signin_click_failed.png")
+                    logger.error("Screenshot saved to bootstrap_signin_click_failed.png for debugging")
+                    raise
+
+                # Wait for the email input field to be visible (indicates real signin form)
+                logger.info("Waiting for signin form email field...")
+                current_url = page.url
+                logger.info("Current URL after clicking Sign In: %s", current_url)
+
+                try:
+                    email_field = page.locator("#ap_email")
+                    # Increase timeout to allow for page load
+                    email_field.wait_for(timeout=20000, state="visible")
+                    logger.info("✓ Email field visible - real signin form loaded")
+                except Exception as e:
+                    logger.error("✗ Email field did not appear - may have landed on wrong page")
+                    logger.error("Exception: %s", str(e))
+                    logger.warning("Continuing anyway - may already be on signin page...")
+                    _take_screenshot(page, "bootstrap_signin_form_not_found.png")
+                    # Don't raise here - user might already be on the signin page
+                    # Just continue with manual input
+                    page.wait_for_timeout(1000)
+
+                # Take initial screenshot before any attempts
+                logger.info("Taking initial screenshot of signin form...")
+                _take_screenshot(page, "bootstrap_initial.png")
 
             except Exception as e:
                 logger.error("\n✗ FATAL: Failed to create page or navigate to signin")
@@ -326,6 +426,10 @@ def run_bootstrap() -> Path:
                 logger.info("\n[DEBUG] Open pages in context: %d", open_pages)
                 if open_pages > 0:
                     logger.info("[DEBUG] Current page URL: %s", page.url)
+
+                # Take screenshot before the input prompt
+                logger.info("Taking screenshot before attempt %d prompt...", attempt)
+                _take_screenshot(page, f"bootstrap_attempt_{attempt}.png")
 
                 input(f"\n[Attempt {attempt}/{MAX_LOGIN_ATTEMPTS}] Press Enter once logged in... ")
 
