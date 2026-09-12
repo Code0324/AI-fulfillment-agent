@@ -117,6 +117,7 @@ _SIGNIN_PAGE_INDICATORS = [
     "sign in to your account",
     "enter your password",
     'id="ap_email"',
+    'id="ap_email_login"',  # Amazon changed email field ID
     'id="ap_password"',
     "keep shopping",
 ]
@@ -366,10 +367,38 @@ def run_bootstrap() -> Path:
                 current_url = page.url
                 logger.info("Current URL after clicking Sign In: %s", current_url)
 
+                # DEBUG: Dump signin page HTML to inspect form structure
                 try:
-                    email_field = page.locator("#ap_email")
-                    # Increase timeout to allow for page load
-                    email_field.wait_for(timeout=20000, state="visible")
+                    page.wait_for_timeout(3000)  # Extra wait for dynamic content
+                    signin_html = page.content()
+                    signin_dump_path = os.path.join(SCREENSHOTS_DIR, "signin-page-html.txt")
+                    with open(signin_dump_path, "w", encoding="utf-8") as f:
+                        f.write(signin_html)
+                    logger.info("✓ Signin page HTML dumped to: %s", signin_dump_path)
+                    logger.info("File size: %d bytes", len(signin_html))
+                except Exception as e:
+                    logger.warning("✗ Could not dump signin HTML: %s", str(e))
+
+                try:
+                    # Try new field ID first (ap_email_login), then fallback to old (ap_email)
+                    email_field = None
+                    for email_id in ["ap_email_login", "ap_email"]:
+                        try:
+                            field = page.locator(f"#{email_id}")
+                            if field.is_visible(timeout=3000):
+                                email_field = field
+                                logger.info("✓ Found email field with ID: #%s", email_id)
+                                break
+                        except Exception:
+                            pass
+
+                    if not email_field:
+                        # Fallback: look for any input with type="email"
+                        email_field = page.locator('input[type="email"]').first
+                        if not email_field.is_visible(timeout=3000):
+                            raise Exception("Could not find email field with any selector")
+                        logger.info("✓ Found email field using type selector")
+
                     logger.info("✓ Email field visible - real signin form loaded")
                 except Exception as e:
                     logger.error("✗ Email field did not appear - may have landed on wrong page")
