@@ -325,12 +325,31 @@ def run_bootstrap() -> Path:
                     page.wait_for_timeout(1500)
 
                     # Find the "Sign in" button inside the dropdown
-                    # It has class "nav-action-signin-button"
-                    sign_in_button = page.locator(".nav-action-signin-button")
-                    if not sign_in_button.is_visible():
-                        raise Exception("Could not find visible '.nav-action-signin-button'")
+                    # Primary: Try class-based selector "nav-action-signin-button"
+                    sign_in_button = None
+                    try:
+                        btn = page.locator(".nav-action-signin-button")
+                        if btn.is_visible():
+                            sign_in_button = btn
+                            logger.info("✓ Found Sign In button by class selector (.nav-action-signin-button)")
+                    except Exception:
+                        pass
 
-                    # Get the href to click directly to signin
+                    # Fallback 1: Try text-based locator for "Sign in"
+                    if not sign_in_button or not sign_in_button.is_visible():
+                        logger.warning("Class selector not found, trying text-based locator...")
+                        try:
+                            text_btn = page.get_by_text("Sign in", exact=False).first
+                            if text_btn.is_visible():
+                                sign_in_button = text_btn
+                                logger.info("✓ Found Sign In button by text locator (get_by_text)")
+                        except Exception as e:
+                            logger.warning("Text locator failed: %s", str(e))
+
+                    if not sign_in_button or not sign_in_button.is_visible():
+                        raise Exception("Could not find visible Sign In button with any selector")
+
+                    # Click the sign in button
                     sign_in_button.click()
                     logger.info("✓ Clicked Sign In button")
                     page.wait_for_timeout(2000)
