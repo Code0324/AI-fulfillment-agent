@@ -37,15 +37,15 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16 lg:h-18">
           {/* Logo */}
           <a href="/" className="flex items-center gap-2 group">
-            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-brand-blue text-white group-hover:scale-105 transition-transform">
+            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-luxury-charcoal text-white group-hover:scale-105 transition-transform">
               <ShoppingCart className="w-5 h-5" />
             </div>
             <div className="flex flex-col leading-tight">
-              <span className="text-lg font-bold text-gray-900 tracking-tight">
-                Amazon<span className="text-brand-orange">FTE</span>
+              <span className="text-lg font-bold font-serif text-luxury-charcoal tracking-tight">
+                E-Commerce Fulfillment
               </span>
               <span className="text-[10px] font-medium text-gray-500 -mt-0.5 hidden sm:block">
-                AI Fulfillment Automation
+                Order Automation Platform
               </span>
             </div>
           </a>

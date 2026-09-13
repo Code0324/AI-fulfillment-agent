@@ -18,37 +18,37 @@ const steps = [
   {
     num: 1,
     icon: Package,
-    title: "Amazon Order Received",
+    title: "Orders Ingested",
     description:
-      "AI automatically detects new orders from your Amazon Seller Central account in real-time.",
+      "Orders arrive from TikTok Shop or your Google Sheet and are automatically queued for processing.",
   },
   {
     num: 2,
     icon: Search,
-    title: "Inventory & Address Check",
+    title: "SKU Lookup",
     description:
-      "Verifies inventory availability across suppliers and validates customer shipping addresses instantly.",
+      "System searches for products on Amazon by SKU and retrieves pricing and availability.",
   },
   {
     num: 3,
     icon: CreditCard,
-    title: "Auto Supplier Checkout",
+    title: "Checkout Automation",
     description:
-      "Automatically places orders with the optimal supplier based on price, speed, and reliability scores.",
+      "Fills shipping details, gift options, and navigates to the order summary on Amazon—ready for purchase.",
   },
   {
     num: 4,
-    icon: Truck,
-    title: "Tracking & Sync",
+    icon: CheckCircle2,
+    title: "Human Approval",
     description:
-      "Syncs tracking information back to Amazon and updates the customer — fully automated, zero manual steps.",
+      "You review the order in the Fulfillment dashboard and explicitly approve before any purchase is made.",
   },
   {
     num: 5,
-    icon: CheckCircle2,
-    title: "Order Fulfilled",
+    icon: Truck,
+    title: "Order & Sync",
     description:
-      "Order is marked complete. Your customer is happy, and you didn't have to touch a single button.",
+      "Order is placed on Amazon, confirmation and tracking details sync back to your Google Sheet automatically.",
   },
 ];
 
@@ -73,14 +73,14 @@ export default function HowItWorks() {
           transition={{ duration: 0.5 }}
           className="text-center max-w-2xl mx-auto mb-16"
         >
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-50 border border-orange-100 text-sm font-semibold text-brand-orange mb-4">
-            🤖 Process
+          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-luxury-gold/10 border border-luxury-gold/20 text-sm font-semibold text-luxury-charcoal mb-4">
+            🤖 Workflow
           </span>
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight">
-            How AmazonFTE Works?
+          <h2 className="text-3xl sm:text-4xl font-serif font-bold text-luxury-charcoal tracking-tight">
+            How It Works
           </h2>
           <p className="mt-4 text-lg text-gray-600">
-            From Order to Fulfillment — Fully Automated
+            From order intake to fulfillment — automated and approved by you.
           </p>
         </motion.div>
 

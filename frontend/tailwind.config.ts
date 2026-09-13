@@ -10,15 +10,26 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          blue: "#2563EB",
-          "blue-dark": "#1D4ED8",
-          "blue-light": "#3B82F6",
-          orange: "#F97316",
-          "orange-dark": "#EA580C",
+          blue: "#1a472a",
+          "blue-dark": "#0f2818",
+          "blue-light": "#2d6b47",
+          orange: "#c9a961",
+          "orange-dark": "#9d7e47",
           green: "#22C55E",
           "green-dark": "#16A34A",
           navy: "#0F172A",
           "navy-light": "#1E293B",
+          accent: "#c9a961",
+          "accent-dark": "#9d7e47",
+        },
+        // Luxury palette
+        luxury: {
+          charcoal: "#1a1a1a",
+          "charcoal-light": "#2d2d2d",
+          cream: "#f9f7f4",
+          "cream-dark": "#f3ede8",
+          gold: "#c9a961",
+          "gold-dark": "#9d7e47",
         },
       },
       fontFamily: {
@@ -30,6 +41,11 @@ const config: Config = {
           "Segoe UI",
           "Roboto",
           "sans-serif",
+        ],
+        serif: [
+          "Playfair Display",
+          "Georgia",
+          "serif",
         ],
       },
       animation: {
@@ -81,11 +97,11 @@ const config: Config = {
           "linear-gradient(135deg, #1E3A8A 0%, #1E40AF 50%, #2563EB 100%)",
       },
       boxShadow: {
-        glass: "0 8px 32px 0 rgba(31, 38, 135, 0.07)",
-        card: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)",
-        "card-hover":
-          "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+        glass: "0 2px 8px rgba(0, 0, 0, 0.04)",
+        card: "0 1px 3px rgba(0, 0, 0, 0.06)",
+        "card-hover": "0 4px 12px rgba(0, 0, 0, 0.08)",
         float: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+        "subtle": "0 1px 2px rgba(0, 0, 0, 0.03)",
       },
     },
   },

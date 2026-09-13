@@ -66,40 +66,46 @@ export default function AnalyticsPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-serif font-bold text-luxury-charcoal mb-2">Analytics</h1>
+          <p className="text-sm text-gray-500">Order and inventory metrics.</p>
+        </div>
+
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm" role="alert">
+          <div className="bg-red-50 border border-red-100 text-red-700 rounded-lg px-5 py-4 text-sm shadow-subtle" role="alert">
             {error}
           </div>
         )}
 
-        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700 flex items-start gap-2">
+        <div className="bg-blue-50 border border-blue-100 rounded-lg px-5 py-4 text-sm text-blue-700 flex items-start gap-3">
           <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <span>
-            These figures are computed live from real order and inventory data. Revenue and
-            time-series trend analytics aren&apos;t available yet — the order model doesn&apos;t
-            track price, and there&apos;s no historical/date-bucketed analytics backend.
+            Live analytics from order and inventory data. Advanced metrics coming soon.
           </span>
         </div>
 
         {/* KPIs */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {kpis.map((kpi) => (
-            <div key={kpi.label} className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className={`w-8 h-8 rounded-lg ${kpi.bg} flex items-center justify-center mb-2`}>
-                <kpi.icon className={`w-4 h-4 ${kpi.color}`} />
+        <div>
+          <h2 className="text-base font-semibold text-luxury-charcoal mb-5">Key Metrics</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+            {kpis.map((kpi) => (
+              <div key={kpi.label} className="bg-white rounded-lg border border-gray-100 p-6 shadow-subtle hover:shadow-card transition-shadow">
+                <div className={`w-10 h-10 rounded-lg ${kpi.bg} flex items-center justify-center mb-4`}>
+                  <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
+                </div>
+                <p className="text-3xl font-bold text-luxury-charcoal">{loading ? "—" : kpi.value}</p>
+                <p className="text-sm text-gray-500 mt-2 font-medium">{kpi.label}</p>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{loading ? "—" : kpi.value}</p>
-              <p className="text-xs text-gray-500 mt-1">{kpi.label}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         {/* Order status breakdown */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-base font-bold text-gray-900 mb-5 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-brand-blue" />
-            Order Status Breakdown ({orders.length} orders)
+        <div className="bg-white rounded-lg border border-gray-100 p-6 shadow-subtle">
+          <h2 className="text-base font-semibold text-luxury-charcoal mb-6 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-luxury-gold" />
+            Order Status Distribution
           </h2>
           {!loading && orders.length === 0 && (
             <p className="text-sm text-gray-400">No orders yet.</p>
@@ -125,34 +131,33 @@ export default function AnalyticsPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Warehouse className="w-4 h-4 text-brand-blue" />
-            Inventory Snapshot
+        <div className="bg-white rounded-lg border border-gray-100 p-6 shadow-subtle">
+          <h2 className="text-base font-semibold text-luxury-charcoal mb-6 flex items-center gap-2">
+            <Warehouse className="w-4 h-4 text-luxury-gold" />
+            Inventory Summary
           </h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 text-center">
-              <p className="text-lg font-bold text-gray-900">{loading ? "—" : totalSkus}</p>
-              <p className="text-[10px] text-gray-500">Total SKUs</p>
+          <div className="grid grid-cols-3 gap-5">
+            <div className="p-5 rounded-lg bg-luxury-cream-dark/30 border border-gray-100 text-center">
+              <p className="text-2xl font-bold text-luxury-charcoal">{loading ? "—" : totalSkus}</p>
+              <p className="text-xs text-gray-500 font-medium mt-2">Total SKUs</p>
             </div>
-            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 text-center">
-              <p className="text-lg font-bold text-gray-900">
+            <div className="p-5 rounded-lg bg-luxury-cream-dark/30 border border-gray-100 text-center">
+              <p className="text-2xl font-bold text-luxury-charcoal">
                 {loading ? "—" : inventory.filter((i) => i.status === "in_stock").length}
               </p>
-              <p className="text-[10px] text-gray-500">In Stock</p>
+              <p className="text-xs text-gray-500 font-medium mt-2">In Stock</p>
             </div>
-            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 text-center">
-              <p className="text-lg font-bold text-gray-900">{loading ? "—" : lowStockCount}</p>
-              <p className="text-[10px] text-gray-500">Low / Out of Stock</p>
+            <div className="p-5 rounded-lg bg-luxury-cream-dark/30 border border-gray-100 text-center">
+              <p className="text-2xl font-bold text-luxury-charcoal">{loading ? "—" : lowStockCount}</p>
+              <p className="text-xs text-gray-500 font-medium mt-2">Low / Out of Stock</p>
             </div>
           </div>
         </div>
 
         {cancelledCount > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <p className="text-sm text-gray-600">
-              <span className="font-bold text-gray-900">{cancelledCount}</span> order
-              {cancelledCount === 1 ? "" : "s"} cancelled out of {orders.length} total.
+          <div className="bg-white rounded-lg border border-gray-100 p-6 shadow-subtle">
+            <p className="text-sm text-gray-700">
+              <span className="font-semibold text-luxury-charcoal">{cancelledCount}</span> order{cancelledCount === 1 ? "" : "s"} cancelled out of {orders.length} total.
             </p>
           </div>
         )}

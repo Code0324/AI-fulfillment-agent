@@ -290,11 +290,11 @@ export default function OrdersSection() {
   // ------------------------------------------------------------------
 
   return (
-    <section aria-label="Orders" className="space-y-6">
+    <section aria-label="Orders" className="space-y-8">
       {/* ---- Error banner ---- */}
       {error && (
         <div
-          className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex items-start justify-between"
+          className="bg-red-50 border border-red-100 text-red-700 rounded-lg px-5 py-4 text-sm flex items-start justify-between shadow-subtle"
           role="alert"
         >
           <span>{error}</span>
@@ -309,31 +309,30 @@ export default function OrdersSection() {
       )}
 
       {/* ---- TikTok Shop Orders ---- */}
-      <div className="bg-white border border-gray-200 rounded-lg p-5">
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            TikTok Shop Orders
+      <div className="bg-white border border-gray-100 rounded-lg p-6 shadow-subtle">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-base font-semibold text-luxury-charcoal">
+            TikTok Shop Sync
           </h2>
           {tiktokStatus?.configured ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-xs font-semibold text-green-700">
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border border-green-100 text-xs font-semibold text-green-700">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-              Connected ({tiktokStatus.environment})
+              Connected
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-50 border border-yellow-200 text-xs font-semibold text-yellow-700">
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-50 border border-yellow-100 text-xs font-semibold text-yellow-700">
               <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-              TikTok Shop — NOT CONFIGURED
+              Not Configured
             </span>
           )}
         </div>
-        <p className="text-sm text-gray-500 mb-3">
-          New orders are fetched automatically from TikTok Shop, matched to an Amazon SKU, and
-          prepared for checkout — you only step in for SKU review or final approval.
+        <p className="text-sm text-gray-500 mb-4">
+          Sync new orders from TikTok Shop and match them to inventory.
         </p>
         <button
           onClick={handleSyncTiktok}
           disabled={syncing || !tiktokStatus?.configured}
-          className="px-4 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-luxury-charcoal hover:bg-luxury-charcoal-light disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           {syncing ? "Syncing…" : "Sync TikTok Orders"}
         </button>
@@ -364,24 +363,22 @@ export default function OrdersSection() {
 
       {/* ---- Summary cards ---- */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+        <h2 className="text-base font-semibold text-luxury-charcoal mb-5">
           Order Summary
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-5">
           {summary.map(({ status, count }) => {
             const meta = ORDER_STATUS_META[status];
             return (
               <div
                 key={status}
-                className="rounded-lg border border-gray-200 bg-white p-4 text-center"
+                className="rounded-lg border border-gray-100 bg-white p-5 text-center shadow-subtle hover:shadow-card transition-shadow"
               >
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${meta.dot}`} />
-                  <span className="text-sm font-medium text-gray-700">
-                    {meta.label}
-                  </span>
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{count}</p>
+                <p className="text-3xl font-bold text-luxury-charcoal mb-1">{count}</p>
+                <p className="text-xs text-gray-500 font-medium">{meta.label}</p>
               </div>
             );
           })}
@@ -389,60 +386,60 @@ export default function OrdersSection() {
       </div>
 
       {/* ---- Create order ---- */}
-      <div className="bg-white border border-gray-200 rounded-lg p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Create Manual Order
+      <div className="bg-white border border-gray-100 rounded-lg p-6 shadow-subtle">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-luxury-charcoal">
+            Create Order
           </h2>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            className="text-sm text-luxury-gold hover:text-luxury-gold-dark font-semibold transition-colors"
           >
             {showForm ? "Cancel" : "+ New Manual Order"}
           </button>
         </div>
 
         {showForm && (
-          <form onSubmit={handleCreate} className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <input
                 type="text"
                 value={form.customer_name}
                 onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
-                placeholder="Customer name *"
+                placeholder="Customer name"
                 required
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-luxury-gold/50 focus:border-transparent bg-white"
               />
               <input
                 type="text"
                 value={form.product_name}
                 onChange={(e) => setForm({ ...form, product_name: e.target.value })}
-                placeholder="Product name *"
+                placeholder="Product name"
                 required
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-luxury-gold/50 focus:border-transparent bg-white"
               />
             </div>
             <input
               type="text"
               value={form.shipping_address}
               onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
-              placeholder="Shipping address *"
+              placeholder="Shipping address"
               required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-luxury-gold/50 focus:border-transparent bg-white"
             />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">SKU (optional)</label>
+                <label className="block text-xs text-gray-500 font-medium mb-2">SKU (optional)</label>
                 <input
                   type="text"
                   value={form.sku || ""}
                   onChange={(e) => setForm({ ...form, sku: e.target.value })}
                   placeholder="e.g. MOUSE-001"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-luxury-gold/50 focus:border-transparent bg-white"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Qty</label>
+                <label className="block text-xs text-gray-500 font-medium mb-2">Quantity</label>
                 <input
                   type="number"
                   min={1}
@@ -450,7 +447,7 @@ export default function OrdersSection() {
                   onChange={(e) =>
                     setForm({ ...form, quantity: parseInt(e.target.value) || 1 })
                   }
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-luxury-gold/50 focus:border-transparent bg-white"
                 />
               </div>
               <div className="flex items-end">
@@ -459,7 +456,7 @@ export default function OrdersSection() {
                     type="checkbox"
                     checked={form.reserve_inventory || false}
                     onChange={(e) => setForm({ ...form, reserve_inventory: e.target.checked })}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300"
                   />
                   Reserve inventory
                 </label>
@@ -468,7 +465,7 @@ export default function OrdersSection() {
             <button
               type="submit"
               disabled={creating || !form.customer_name.trim() || !form.product_name.trim()}
-              className="px-5 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-luxury-charcoal hover:bg-luxury-charcoal-light disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               {creating ? "Creating…" : "Create Order"}
             </button>
@@ -478,17 +475,17 @@ export default function OrdersSection() {
 
       {/* ---- Order list ---- */}
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Orders
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-luxury-charcoal">
+            All Orders
           </h2>
           <div className="flex items-center gap-3">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search customer, product…"
-              className="text-xs border border-gray-300 rounded px-3 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-48"
+              placeholder="Search…"
+              className="text-sm border border-gray-200 rounded-lg px-4 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-luxury-gold/50 w-48"
             />
             <select
               value={statusFilter ?? ""}
@@ -497,7 +494,7 @@ export default function OrdersSection() {
                   e.target.value ? (e.target.value as OrderStatus) : undefined,
                 )
               }
-              className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-luxury-gold/50"
             >
               <option value="">All Statuses</option>
               {ALL_ORDER_STATUSES.map((s) => (
@@ -513,7 +510,7 @@ export default function OrdersSection() {
                   e.target.value ? (e.target.value as Order["source"]) : undefined,
                 )
               }
-              className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-luxury-gold/50"
             >
               <option value="">All Sources</option>
               <option value="TIKTOK">TikTok Shop</option>
@@ -523,7 +520,7 @@ export default function OrdersSection() {
             </select>
             <button
               onClick={loadOrders}
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              className="text-sm text-luxury-gold hover:text-luxury-gold-dark font-semibold transition-colors"
             >
               Refresh
             </button>
@@ -531,92 +528,92 @@ export default function OrdersSection() {
         </div>
 
         {loading && (
-          <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-400">
+          <div className="bg-white border border-gray-100 rounded-lg p-8 text-center text-gray-400 shadow-subtle">
             Loading orders…
           </div>
         )}
 
         {!loading && orders.length === 0 && (
-          <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-400">
+          <div className="bg-white border border-gray-100 rounded-lg p-8 text-center text-gray-400 shadow-subtle">
             No orders yet. Create one above to get started.
           </div>
         )}
 
         {!loading && orders.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="bg-white border border-gray-100 rounded-lg overflow-hidden shadow-subtle">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <th className="px-4 py-3">Order ID</th>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">SKU</th>
-                    <th className="px-4 py-3">Product</th>
-                    <th className="px-4 py-3">Variation</th>
-                    <th className="px-4 py-3">Qty</th>
-                    <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Agent Status</th>
-                    <th className="px-4 py-3">Inventory</th>
-                    <th className="px-4 py-3 text-right">Action</th>
+                  <tr className="bg-luxury-cream/50 border-b border-gray-100 text-left text-xs font-semibold text-gray-500 uppercase tracking-widest">
+                    <th className="px-6 py-4">Order ID</th>
+                    <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">SKU</th>
+                    <th className="px-6 py-4">Product</th>
+                    <th className="px-6 py-4">Variation</th>
+                    <th className="px-6 py-4">Qty</th>
+                    <th className="px-6 py-4">Customer</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Agent Status</th>
+                    <th className="px-6 py-4">Inventory</th>
+                    <th className="px-6 py-4 text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-50">
                   {orders.map((order) => {
                     const meta = ORDER_STATUS_META[order.status];
                     const agentMeta = agentStatusFor(order);
                     return (
-                      <tr key={order.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-xs font-mono text-gray-600">
+                      <tr key={order.id} className="hover:bg-luxury-cream-dark/30 transition-colors">
+                        <td className="px-6 py-4 text-xs font-mono text-gray-700">
                           {order.source === "TIKTOK" && order.tiktok_order_id
                             ? order.tiktok_order_id
                             : order.id.slice(0, 8)}
                         </td>
-                        <td className="px-4 py-3 text-gray-500 text-xs">
+                        <td className="px-6 py-4 text-gray-600 text-xs">
                           {formatTime(order.created_at)}
                         </td>
-                        <td className="px-4 py-3">
-                          <span className="text-xs font-mono text-gray-600">
+                        <td className="px-6 py-4">
+                          <span className="text-xs font-mono text-gray-700">
                             {order.sku || "—"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-700">
+                        <td className="px-6 py-4 text-gray-800">
                           {order.product_name}
                         </td>
-                        <td className="px-4 py-3 text-gray-500 text-xs">
+                        <td className="px-6 py-4 text-gray-600 text-xs">
                           {order.variation || "—"}
                         </td>
-                        <td className="px-4 py-3 text-gray-700">
+                        <td className="px-6 py-4 text-gray-800">
                           {order.quantity}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           <div className="font-medium text-gray-900">
                             {order.customer_name}
                           </div>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${meta.bg} ${meta.text}`}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${meta.bg} ${meta.text}`}
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                             {meta.label}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${agentMeta.bg} ${agentMeta.text}`}>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold ${agentMeta.bg} ${agentMeta.text}`}>
                             {agentMeta.label}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           {order.inventory_reserved ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-green-700 font-medium">
+                            <span className="inline-flex items-center gap-1 text-xs text-green-700 font-semibold">
                               <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                               Reserved
                             </span>
                           ) : order.sku ? (
                             <button
                               onClick={() => handleReserve(order.id)}
-                              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                              className="text-xs text-luxury-gold hover:text-luxury-gold-dark font-semibold transition-colors"
                             >
                               Reserve
                             </button>
@@ -624,10 +621,10 @@ export default function OrdersSection() {
                             <span className="text-xs text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-6 py-4 text-right">
                           <button
                             onClick={() => setSelectedOrderId(order.id)}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            className="text-xs text-luxury-gold hover:text-luxury-gold-dark font-semibold transition-colors"
                           >
                             View
                           </button>
