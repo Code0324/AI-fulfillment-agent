@@ -1,6 +1,6 @@
-# Amazon AI Fulfillment Assistant
+# E-Commerce Fulfillment Platform
 
-AI-powered order fulfillment workspace for Amazon sellers.
+Modern fulfillment management platform with order processing, inventory control, and supplier workflow automation.
 
 ## Current Development Phase
 
@@ -24,7 +24,7 @@ and the `docs/chunk-*-final-report.md` files for details on what exists.
 ## Folder Structure
 
 ```
-Amazon-AI-Fulfillment-Agent/
+e-commerce-fulfillment/
 ├── frontend/          # Next.js application
 ├── backend/
 │   └── app/
@@ -89,3 +89,4 @@ Expected response:
 
 See [docs/roadmap.md](docs/roadmap.md) for the full development roadmap.
 # AI-fulfillment-agent
+# ecommerce-FTE
